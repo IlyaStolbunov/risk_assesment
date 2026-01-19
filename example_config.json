@@ -1,0 +1,159 @@
+{
+  "variables": {
+    "vibration": {
+      "range": [0, 10, 0.1],
+      "terms": {
+        "low": {
+          "type": "trimf",
+          "params": [0, 0, 4]
+        },
+        "medium": {
+          "type": "gaussmf",
+          "params": [5, 1.5]
+        },
+        "high": {
+          "type": "trapmf",
+          "params": [6, 7, 10, 10]
+        }
+      }
+    },
+    "noise": {
+      "range": [0, 10, 0.1],
+      "terms": {
+        "low": {
+          "type": "trimf",
+          "params": [0, 0, 5]
+        },
+        "medium": {
+          "type": "trimf",
+          "params": [0, 5, 10]
+        },
+        "high": {
+          "type": "trimf",
+          "params": [5, 10, 10]
+        }
+      }
+    },
+    "chemical": {
+      "range": [0, 10, 0.1],
+      "terms": {
+        "low": {
+          "type": "trapmf",
+          "params": [0, 0, 2, 4]
+        },
+        "medium": {
+          "type": "gaussmf",
+          "params": [5, 1.2]
+        },
+        "high": {
+          "type": "trapmf",
+          "params": [6, 7, 10, 10]
+        }
+      }
+    },
+    "health": {
+      "range": [0, 1, 0.01],
+      "terms": {
+        "bad": {
+          "type": "trimf",
+          "params": [0, 0, 0.4]
+        },
+        "average": {
+          "type": "trimf",
+          "params": [0.2, 0.5, 0.8]
+        },
+        "good": {
+          "type": "trimf",
+          "params": [0.6, 1, 1]
+        }
+      }
+    }
+  },
+  "output": {
+    "risk": {
+      "range": [0, 100, 1],
+      "terms": {
+        "very_low": {
+          "type": "trimf",
+          "params": [0, 0, 20]
+        },
+        "low": {
+          "type": "trimf",
+          "params": [0, 20, 40]
+        },
+        "medium": {
+          "type": "trimf",
+          "params": [20, 40, 60]
+        },
+        "high": {
+          "type": "trimf",
+          "params": [40, 60, 80]
+        },
+        "very_high": {
+          "type": "trimf",
+          "params": [60, 80, 100]
+        }
+      }
+    }
+  },
+  "rules": [
+    {
+      "if": [
+        {
+          "variable": "vibration",
+          "term": "high"
+        },
+        {
+          "variable": "noise",
+          "term": "high",
+          "operator": "or"
+        },
+        {
+          "variable": "chemical",
+          "term": "high",
+          "operator": "or"
+        }
+      ],
+      "then": "very_high"
+    },
+    {
+      "if": [
+        {
+          "variable": "health",
+          "term": "bad",
+          "operator": "and"
+        },
+        {
+          "variable": "vibration",
+          "term": "medium",
+          "operator": "or"
+        }
+      ],
+      "then": "high"
+    },
+    {
+      "if": [
+        {
+          "variable": "vibration",
+          "term": "low",
+          "operator": "and"
+        },
+        {
+          "variable": "noise",
+          "term": "low",
+          "operator": "and"
+        },
+        {
+          "variable": "chemical",
+          "term": "low",
+          "operator": "and"
+        },
+        {
+          "variable": "health",
+          "term": "good"
+        }
+      ],
+      "then": "very_low"
+    }
+  ]
+}
