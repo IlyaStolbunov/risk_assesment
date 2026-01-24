@@ -203,29 +203,3 @@ class FuzzyRiskSystem:
         else:
             return "Очень высокий", "#F44336"
 
-    def get_config_info(self):
-        """Получение информации о текущей конфигурации"""
-        if not self.config:
-            return "Используется конфигурация по умолчанию"
-
-        info = []
-        info.append("=== КОНФИГУРАЦИЯ СИСТЕМЫ ===")
-
-        # Информация о переменных
-        info.append("\nВходные переменные:")
-        for var_name, var_config in self.config['variables'].items():
-            info.append(f"  {var_name}:")
-            for term_name, term_config in var_config['terms'].items():
-                info.append(f"    - {term_name}: {term_config['type']} {term_config['params']}")
-
-        # Информация о правилах
-        info.append("\nПравила:")
-        for i, rule in enumerate(self.config['rules'], 1):
-            conditions = []
-            for cond in rule['if']:
-                operator = cond.get('operator', 'и')
-                conditions.append(f"{cond['variable']} {cond['term']}")
-
-            info.append(f"  {i}. ЕСЛИ {' '.join(conditions)} ТО риск {rule['then']}")
-
-        return "\n".join(info)
