@@ -8,11 +8,14 @@ class Employee:
     def __init__(self, employee_dict: dict):
         self.id = employee_dict['id']
         self.full_name = employee_dict['full_name']
+        self.lastname = employee_dict.get('lastname', '')
+        self.firstname = employee_dict.get('firstname', '')
+        self.patronymic = employee_dict.get('patronymic', '')
         self.position = employee_dict['position']
         self.gender = employee_dict['gender']
         self.birth_date = employee_dict.get('birth_date')
         self.start_year = employee_dict.get('start_year')
-        self.department_id = employee_dict.get('department_id', 1)
+        self.department_id = employee_dict.get('department_id')
 
         # Диагнозы
         self.diagnoses = employee_dict.get('diagnoses', {})
@@ -76,7 +79,7 @@ class Employee:
 class EmployeeManager:
     """Менеджер работников (работает с БД)"""
 
-    def __init__(self, db_path: str = 'database/risk_assesment.db'):
+    def __init__(self, db_path: str):
         self.db = DatabaseManager(db_path)
 
     def get_all_employees(self) -> list:
@@ -119,3 +122,7 @@ class EmployeeManager:
     def get_diagnosis_categories(self) -> list:
         """Получить категории диагнозов"""
         return self.db.get_diagnosis_categories()
+
+    def get_departments(self) -> list:
+        """Получить список предприятий"""
+        return self.db.get_all_departments()

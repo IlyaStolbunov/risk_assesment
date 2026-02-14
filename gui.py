@@ -1,11 +1,17 @@
+import os
+
 from PyQt6.QtWidgets import *
 from PyQt6.QtCore import *
 from PyQt6.QtGui import *
+
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill
 
 from employee_manager import EmployeeManager
 from health_calculator import HealthCalculator
 from fuzzy_system import FuzzyRiskSystem
 
+DB_URL = 'database/risk_assesment.db'
 
 class ConfigInfoDialog(QDialog):
     """Диалог отображения информации о конфигурации"""
@@ -42,8 +48,8 @@ class EmployeeTableModel(QAbstractTableModel):
     def __init__(self, employees):
         super().__init__()
         self.employees = employees
-        self.headers = ['ID', 'ФИО', 'Должность', 'Пол', 'Возраст', 'Здоровье',
-                        'Диагнозы (основные)', 'Проф.вредность', 'Инвалидность']
+        self.headers = ['№', 'ФИО', 'Должность', 'Предприятие', 'Пол', 'Возраст', 'Проф. вредность', 'Год вредности', 'Инвалидность',
+                        'Диагнозы', 'Здоровье']
 
     def rowCount(self, parent=None):
         return len(self.employees)
@@ -67,45 +73,48 @@ class EmployeeTableModel(QAbstractTableModel):
                 elif col == 2:
                     return employee.position
                 elif col == 3:
-                    return employee.gender
+                    return str(employee.department_id)\
+                        if hasattr(employee, 'department_id') and employee.department_id else ""
                 elif col == 4:
+                    return employee.gender
+                elif col == 5:
                     age = employee.get_age()
                     return str(age) if age is not None else ""
-                elif col == 5:
+                elif col == 10:
                     score = HealthCalculator.calculate_health_score(employee)
-                    desc = HealthCalculator.get_health_description(score)
-                    return f"{score:.2f} ({desc})"
-                elif col == 6:
-                    # Отображаем первые 2-3 диагноза
+                    #desc = HealthCalculator.get_health_description(score)
+                    return f"{score:.2f}"
+                    #return f"{score:.2f} ({desc})"
+                elif col == 9:
                     if hasattr(employee, 'diagnoses') and employee.diagnoses:
                         all_diagnoses = []
                         for category, diagnoses in employee.diagnoses.items():
                             if diagnoses:
-                                all_diagnoses.extend(diagnoses[:1])  # По одному из каждой категории
+                                all_diagnoses.extend(diagnoses)  # По одному из каждой категории
+                        return ", ".join(all_diagnoses)
 
-                        if all_diagnoses:
-                            if len(all_diagnoses) > 2:
-                                return ", ".join(all_diagnoses[:2]) + "..."
-                            return ", ".join(all_diagnoses)
                     return ""
-                elif col == 7:
-                    return employee.prof_harm_code if hasattr(employee,
-                                                              'prof_harm_code') and employee.prof_harm_code else ""
+                elif col == 6:
+                    return employee.prof_harm_code if hasattr(employee, 'prof_harm_code') and employee.prof_harm_code else ""
                 elif col == 8:
                     if hasattr(employee, 'disability_group') and employee.disability_group:
                         return f"Гр.{employee.disability_group}"
                     return ""
+                elif col == 7:
+                    return employee.prof_harm_year if hasattr(employee,
+                                                              'prof_harm_year') and employee.prof_harm_year else ""
+
             except Exception as e:
                 print(f"Error getting data for cell {index.row()}, {col}: {e}")
                 return "Ошибка"
 
         elif role == Qt.ItemDataRole.TextAlignmentRole:
-            if col in [0, 3, 4, 5, 7, 8]:
+            if col in [0, 3, 4, 5, 6, 7, 8, 10]:
                 return Qt.AlignmentFlag.AlignCenter
             return Qt.AlignmentFlag.AlignLeft
 
         elif role == Qt.ItemDataRole.ToolTipRole:
-            if col == 6 and hasattr(employee, 'diagnoses') and employee.diagnoses:
+            if col == 9 and hasattr(employee, 'diagnoses') and employee.diagnoses:
                 tooltip = "<b>Диагнозы:</b><br>"
                 for category, diagnoses in employee.diagnoses.items():
                     if diagnoses:
@@ -160,7 +169,7 @@ class DiagnosisInputWidget(QWidget):
 
         # Загружаем категории из БД
         from employee_manager import EmployeeManager
-        manager = EmployeeManager()
+        manager = EmployeeManager(DB_URL)
         categories = manager.get_diagnosis_categories()
 
         for cat in categories:
@@ -269,17 +278,31 @@ class AddEditEmployeeDialog(QDialog):
         info_group = QGroupBox("Основная информация")
         info_layout = QFormLayout()
 
-        self.name_edit = QLineEdit()
-        info_layout.addRow("Фамилия:", self.name_edit)
+        self.lastname_edit = QLineEdit()
+        info_layout.addRow("Фамилия:", self.lastname_edit)
+
+        self.firstname_edit = QLineEdit()
+        info_layout.addRow("Имя:", self.firstname_edit)
+
+        self.patronymic_edit = QLineEdit()
+        self.patronymic_edit.setPlaceholderText("необязательно")
+        info_layout.addRow("Отчество:", self.patronymic_edit)
 
         # Должность
         self.position_combo = QComboBox()
         from employee_manager import EmployeeManager
-        manager = EmployeeManager()
+        manager = EmployeeManager(DB_URL)
         positions = manager.get_positions()
         for pos in positions:
             self.position_combo.addItem(pos['name'], pos['id'])
         info_layout.addRow("Должность:", self.position_combo)
+
+        # Предприятие
+        self.department_combo = QComboBox()
+        departments = manager.get_departments()
+        for dept in departments:
+            self.department_combo.addItem(f"№ {dept['id']}", dept['id'])
+        info_layout.addRow("Предприятие:", self.department_combo)
 
         # Пол
         self.gender_combo = QComboBox()
@@ -361,13 +384,24 @@ class AddEditEmployeeDialog(QDialog):
         if not self.employee:
             return
 
-        self.name_edit.setText(self.employee.full_name)
+        self.lastname_edit.setText(self.employee.lastname)
+        if hasattr(self.employee, 'firstname'):
+            self.firstname_edit.setText(self.employee.firstname or '')
+        if hasattr(self.employee, 'patronymic'):
+            self.patronymic_edit.setText(self.employee.patronymic or '')
 
         # Установка должности
         for i in range(self.position_combo.count()):
             if self.position_combo.itemText(i) == self.employee.position:
                 self.position_combo.setCurrentIndex(i)
                 break
+
+        # Установка предприятия
+        if hasattr(self.employee, 'department_id') and self.employee.department_id:
+            for i in range(self.department_combo.count()):
+                if self.department_combo.itemData(i) == self.employee.department_id:
+                    self.department_combo.setCurrentIndex(i)
+                    break
 
         # Установка пола
         index = self.gender_combo.findText(self.employee.gender)
@@ -414,7 +448,7 @@ class AddEditEmployeeDialog(QDialog):
     def validate_and_accept(self):
         """Проверка данных и закрытие диалога"""
         # Проверяем обязательные поля
-        if not self.name_edit.text().strip():
+        if not self.lastname_edit.text().strip():
             QMessageBox.warning(self, "Ошибка", "Введите фамилию работника!")
             return
 
@@ -423,12 +457,14 @@ class AddEditEmployeeDialog(QDialog):
 
         # Формируем данные
         employee_data = {
-            'full_name': self.name_edit.text().strip(),
+            'lastname': self.lastname_edit.text().strip(),
+            'firstname': self.firstname_edit.text().strip(),
+            'patronymic': self.patronymic_edit.text().strip(),
             'position_id': self.position_combo.currentData(),
             'gender': self.gender_combo.currentText(),
             'birth_date': self.birth_date_edit.date().toString('yyyy-MM-dd'),
             'start_year': self.start_date_edit.date().toString('yyyy-MM-dd'),
-            'department_id': 1,  # По умолчанию
+            'department_id': self.department_combo.currentData(),
             'diagnoses': diagnoses
         }
 
@@ -478,12 +514,14 @@ class RiskCalculatorDialog(QDialog):
         info_layout = QFormLayout()
 
         health_score = HealthCalculator.calculate_health_score(self.employee)
-        health_desc = HealthCalculator.get_health_description(health_score)
+        #health_desc = HealthCalculator.get_health_description(health_score)
 
         info_layout.addRow("ФИО:", QLabel(self.employee.full_name))
         info_layout.addRow("Должность:", QLabel(self.employee.position))
-        info_layout.addRow("Показатель здоровья:",
-                           QLabel(f"{health_score:.2f} ({health_desc})"))
+        info_layout.addRow("Показатель здоровья:", QLabel(f"{health_score:.2f}"))
+                           #QLabel(f"{health_score:.2f} ({health_desc})"))
+
+
 
         info_group.setLayout(info_layout)
         layout.addWidget(info_group)
@@ -631,7 +669,7 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         # Инициализируем менеджер сотрудников
-        self.employee_manager = EmployeeManager('database/risk_assesment.db')
+        self.employee_manager = EmployeeManager(DB_URL)
 
         # Инициализируем систему нечеткой логики
         try:
@@ -658,12 +696,32 @@ class MainWindow(QMainWindow):
 
         self.create_menu_bar()
 
-        # Панель поиска
+        # Панель поиска с тремя полями
         search_layout = QHBoxLayout()
-        self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Поиск по фамилии или должности...")
-        self.search_edit.textChanged.connect(self.search_employees)
-        search_layout.addWidget(self.search_edit)
+
+        # Поле поиска по ФИО
+        self.search_name_edit = QLineEdit()
+        self.search_name_edit.setPlaceholderText("Поиск по фамилии, имени, отчеству...")
+        self.search_name_edit.textChanged.connect(self.search_employees)
+        search_layout.addWidget(self.search_name_edit)
+
+        # Поле поиска по должности
+        self.search_position_edit = QLineEdit()
+        self.search_position_edit.setPlaceholderText("Поиск по должности...")
+        self.search_position_edit.textChanged.connect(self.search_employees)
+        search_layout.addWidget(self.search_position_edit)
+
+        # Поле поиска по предприятию
+        self.search_department_edit = QLineEdit()
+        self.search_department_edit.setPlaceholderText("Поиск по номеру предприятия...")
+        self.search_department_edit.textChanged.connect(self.search_employees)
+        search_layout.addWidget(self.search_department_edit)
+
+        # Кнопка сброса поиска
+        self.clear_search_btn = QPushButton("Сбросить")
+        self.clear_search_btn.clicked.connect(self.clear_search)
+        search_layout.addWidget(self.clear_search_btn)
+
         main_layout.addLayout(search_layout)
 
         # Таблица работников
@@ -677,8 +735,8 @@ class MainWindow(QMainWindow):
         self.table_view.setShowGrid(True)  # Показывать сетку
         self.table_view.setSortingEnabled(True)
 
-        self.table_view.horizontalHeader().setStretchLastSection(True)
-        self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        #self.table_view.horizontalHeader().setStretchLastSection(True)
+        #self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
         main_layout.addWidget(self.table_view)
 
@@ -754,10 +812,115 @@ class MainWindow(QMainWindow):
         """Создание меню"""
         menubar = self.menuBar()
 
-        # Добавляем новый пункт
+        # Меню Файл
+        file_menu = menubar.addMenu("Файл")
+
+        export_action = QAction("Экспорт в Excel", self)
+        export_action.triggered.connect(self.export_to_excel)
+        file_menu.addAction(export_action)
+
+        file_menu.addSeparator()
+
+        exit_action = QAction("Выход", self)
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+
+        # Меню Настройки
+        settings_menu = menubar.addMenu("Настройки")
+
         edit_config_action = QAction("Редактировать конфигурацию...", self)
         edit_config_action.triggered.connect(self.edit_configuration)
-        menubar.addAction(edit_config_action)
+        settings_menu.addAction(edit_config_action)
+
+    def export_to_excel(self):
+        """Экспорт таблицы в Excel"""
+        if not hasattr(self, 'model') or not self.model:
+            QMessageBox.warning(self, "Ошибка", "Нет данных для экспорта!")
+            return
+
+
+        # Диалог сохранения файла
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Сохранить как Excel",
+            os.path.expanduser("~/employees_export.xlsx"),
+            "Excel Files (*.xlsx);;All Files (*)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            # Собираем данные для экспорта
+            data = []
+            headers = []
+
+            # Заголовки колонок
+            for col in range(self.model.columnCount()):
+                headers.append(self.model.headerData(col, Qt.Orientation.Horizontal))
+
+            # Данные
+            for row in range(self.model.rowCount()):
+                row_data = []
+                for col in range(self.model.columnCount()):
+                    index = self.model.index(row, col)
+                    value = self.model.data(index)
+                    row_data.append(value)
+                data.append(row_data)
+
+
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Сотрудники"
+
+            # Заголовки
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col, value=header)
+                cell.font = Font(bold=True)
+                cell.alignment = Alignment(horizontal='center')
+                cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+                cell.font = Font(color="FFFFFF", bold=True)
+
+            # Данные
+            for row, row_data in enumerate(data, 2):
+                for col, value in enumerate(row_data, 1):
+                    cell = ws.cell(row=row, column=col, value=value)
+                    cell.alignment = Alignment(horizontal='left')
+
+            # Автоширина колонок
+            for col in range(1, len(headers) + 1):
+                max_length = 0
+                column = ws.column_dimensions[chr(64 + col) if col < 27 else f'A{col}']
+                for row in range(1, len(data) + 2):
+                    try:
+                        cell_value = ws.cell(row=row, column=col).value
+                        if cell_value:
+                            max_length = max(max_length, len(str(cell_value)))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                column.width = adjusted_width
+
+            wb.save(file_path)
+
+            QMessageBox.information(
+                self,
+                "Успешно",
+                f"Данные успешно экспортированы в файл:\n{file_path}"
+            )
+            self.status_bar.showMessage(f"Экспорт завершен: {file_path}", 5000)
+
+            # Открываем папку с файлом
+            if os.path.exists(file_path):
+                os.startfile(os.path.dirname(file_path))
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Ошибка экспорта",
+                f"Не удалось экспортировать данные:\n{str(e)}"
+            )
 
     def on_table_double_click(self, index):
         """Обработка двойного клика по таблице"""
@@ -775,36 +938,105 @@ class MainWindow(QMainWindow):
 
                 # Настройка ширины колонок
                 header = self.table_view.horizontalHeader()
-                header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-                header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+                header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+                header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
                 header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-                header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-                header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+                header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+                header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
                 header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-                header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
-                header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
-                header.setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)
+                header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+                header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+                header.setSectionResizeMode(8, QHeaderView.ResizeMode.ResizeToContents)
+                header.setSectionResizeMode(9, QHeaderView.ResizeMode.Stretch)
+                header.setSectionResizeMode(10, QHeaderView.ResizeMode.ResizeToContents)
 
-                # Фиксированные ширины
-                self.table_view.setColumnWidth(0, 50)
-                self.table_view.setColumnWidth(3, 50)
-                self.table_view.setColumnWidth(4, 70)
-                self.table_view.setColumnWidth(5, 120)
-                self.table_view.setColumnWidth(7, 100)
-                self.table_view.setColumnWidth(8, 80)
+
 
                 self.status_bar.showMessage(f"Загружено сотрудников: {len(employees)}", 3000)
             else:
+                # Если нет сотрудников, показываем пустую модель
+                self.model = EmployeeTableModel([])
+                self.table_view.setModel(self.model)
                 self.status_bar.showMessage("Нет данных о сотрудниках", 3000)
 
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Не удалось загрузить сотрудников: {str(e)}")
 
     def search_employees(self):
-        """Поиск работников"""
-        query = self.search_edit.text()
-        employees = self.employee_manager.search_employees(query)
-        self.load_employees(employees)
+        """Поиск работников по трем критериям"""
+        # Получаем значения из полей поиска
+        name_query = self.search_name_edit.text().strip()
+        position_query = self.search_position_edit.text().strip()
+        department_query = self.search_department_edit.text().strip()
+
+        # Если все поля пустые, показываем всех сотрудников
+        if not name_query and not position_query and not department_query:
+            self.load_employees()
+            return
+
+        try:
+            # Получаем всех сотрудников
+            all_employees = self.employee_manager.get_all_employees()
+            filtered_employees = []
+
+            for employee in all_employees:
+                match = True
+
+                # Поиск по ФИО
+                if name_query:
+                    name_match = False
+                    # Поиск в фамилии
+                    if employee.lastname and name_query.lower() in employee.lastname.lower():
+                        name_match = True
+                    # Поиск в имени
+                    if employee.firstname and name_query.lower() in employee.firstname.lower():
+                        name_match = True
+                    # Поиск в отчестве
+                    if employee.patronymic and name_query.lower() in employee.patronymic.lower():
+                        name_match = True
+
+                    if not name_match:
+                        match = False
+
+                # Поиск по должности
+                if match and position_query:
+                    if not (employee.position and position_query.lower() in employee.position.lower()):
+                        match = False
+
+                # Поиск по предприятию
+                if match and department_query:
+                    try:
+                        # Пробуем преобразовать в число для сравнения с номером предприятия
+                        dept_id = int(department_query)
+                        if employee.department_id != dept_id:
+                            match = False
+                    except ValueError:
+                        # Если не число, ищем как текст
+                        if not (str(employee.department_id) and
+                                department_query.lower() in str(employee.department_id).lower()):
+                            match = False
+
+                if match:
+                    filtered_employees.append(employee)
+
+            # Загружаем отфильтрованных сотрудников
+            if filtered_employees:
+                self.load_employees(filtered_employees)
+                self.status_bar.showMessage(f"Найдено сотрудников: {len(filtered_employees)}", 3000)
+            else:
+                self.load_employees([])  # Показываем пустую таблицу
+                self.status_bar.showMessage("Сотрудники не найдены", 3000)
+
+        except Exception as e:
+            print(f"Error searching employees: {e}")
+            self.status_bar.showMessage("Ошибка при поиске", 3000)
+
+    def clear_search(self):
+        """Сброс всех полей поиска"""
+        self.search_name_edit.clear()
+        self.search_position_edit.clear()
+        self.search_department_edit.clear()
+        self.load_employees()  # Загружаем всех сотрудников
 
     def add_employee(self):
         """Добавление нового работника"""

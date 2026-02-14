@@ -4,7 +4,7 @@ from typing import List, Dict, Optional
 class DatabaseManager:
     """Менеджер базы данных"""
 
-    def __init__(self, db_path: str = 'database/risk_assesment.db'):
+    def __init__(self, db_path: str):
         self.db_path = db_path
 
     def get_connection(self):
@@ -23,7 +23,9 @@ class DatabaseManager:
             query = """
             SELECT 
                 e.id,
-                e.lastname as full_name,
+                e.lastname,
+                e.firstname,
+                e.patronymic,
                 p.name as position,
                 e.gender,
                 e.birth_date,
@@ -46,6 +48,14 @@ class DatabaseManager:
             for row in cursor.fetchall():
                 emp_dict = dict(row)
                 emp_id = emp_dict['id']
+
+                # Формируем полное ФИО
+                full_name_parts = [emp_dict.get('lastname', '')]
+                if emp_dict.get('firstname'):
+                    full_name_parts.append(emp_dict['firstname'])
+                if emp_dict.get('patronymic'):
+                    full_name_parts.append(emp_dict['patronymic'])
+                emp_dict['full_name'] = ' '.join(full_name_parts)
 
                 # Получаем диагнозы для сотрудника
                 diag_query = """
@@ -93,7 +103,9 @@ class DatabaseManager:
             query = """
             SELECT 
                 e.id,
-                e.lastname as full_name,
+                e.lastname,
+                e.firstname,
+                e.patronymic,
                 p.name as position,
                 e.gender,
                 e.birth_date,
@@ -117,6 +129,14 @@ class DatabaseManager:
                 return None
 
             emp_dict = dict(row)
+
+            # Формируем полное ФИО
+            full_name_parts = [emp_dict.get('lastname', '')]
+            if emp_dict.get('firstname'):
+                full_name_parts.append(emp_dict['firstname'])
+            if emp_dict.get('patronymic'):
+                full_name_parts.append(emp_dict['patronymic'])
+            emp_dict['full_name'] = ' '.join(full_name_parts)
 
             # Получаем диагнозы
             diag_query = """
@@ -163,10 +183,12 @@ class DatabaseManager:
         try:
             # Добавляем основную информацию
             cursor.execute("""
-            INSERT INTO employees (lastname, birth_date, gender, position_id, department_id, start_year)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO employees (lastname, firstname, patronymic, birth_date, gender, position_id, department_id, start_year)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                employee_data['full_name'],
+                employee_data['lastname'],
+                employee_data.get('firstname', ''),
+                employee_data.get('patronymic', ''),
                 employee_data['birth_date'],
                 employee_data['gender'],
                 employee_data['position_id'],
@@ -176,19 +198,17 @@ class DatabaseManager:
 
             employee_id = cursor.lastrowid
 
-            # Добавляем диагнозы (как новые записи в таблицу диагнозов)
+            # Добавляем диагнозы
             if 'diagnoses' in employee_data:
                 for category_name, diagnosis_names in employee_data['diagnoses'].items():
                     for diagnosis_name in diagnosis_names:
-                        if diagnosis_name.strip():  # Проверяем, что диагноз не пустой
-                            # Находим ID категории
+                        if diagnosis_name.strip():
                             cursor.execute("SELECT id FROM diagnosis_categories WHERE category = ?", (category_name,))
                             category_row = cursor.fetchone()
 
                             if category_row:
                                 category_id = category_row['id']
 
-                                # Проверяем, существует ли уже такой диагноз
                                 cursor.execute("SELECT id FROM diagnoses WHERE name = ? AND category_id = ?",
                                                (diagnosis_name, category_id))
                                 existing_diag = cursor.fetchone()
@@ -196,25 +216,23 @@ class DatabaseManager:
                                 if existing_diag:
                                     diagnosis_id = existing_diag['id']
                                 else:
-                                    # Добавляем новый диагноз
                                     cursor.execute("INSERT INTO diagnoses (name, category_id) VALUES (?, ?)",
                                                    (diagnosis_name, category_id))
                                     diagnosis_id = cursor.lastrowid
 
-                                # Связываем диагноз с сотрудником
                                 cursor.execute("""
                                 INSERT OR IGNORE INTO employee_diagnoses (employee_id, diagnosis_id)
                                 VALUES (?, ?)
                                 """, (employee_id, diagnosis_id))
 
-            # Добавляем профвредность, если есть
+            # Добавляем профвредность
             if employee_data.get('prof_harm_code'):
                 cursor.execute("""
                 INSERT INTO employee_harm (employee_id, prof_harm_code, prof_harm_year)
                 VALUES (?, ?, ?)
                 """, (employee_id, employee_data['prof_harm_code'], employee_data.get('prof_harm_year')))
 
-            # Добавляем инвалидность, если есть
+            # Добавляем инвалидность
             if employee_data.get('disability_group'):
                 cursor.execute("""
                 INSERT INTO employee_disability (employee_id, disability_group)
@@ -240,11 +258,13 @@ class DatabaseManager:
             # Обновляем основную информацию
             cursor.execute("""
             UPDATE employees 
-            SET lastname = ?, birth_date = ?, gender = ?, 
+            SET lastname = ?, firstname = ?, patronymic = ?, birth_date = ?, gender = ?, 
                 position_id = ?, department_id = ?, start_year = ?
             WHERE id = ?
             """, (
-                employee_data['full_name'],
+                employee_data['lastname'],
+                employee_data.get('firstname', ''),
+                employee_data.get('patronymic', ''),
                 employee_data['birth_date'],
                 employee_data['gender'],
                 employee_data['position_id'],
@@ -253,7 +273,7 @@ class DatabaseManager:
                 employee_id
             ))
 
-            # Удаляем старые диагнозы сотрудника
+            # Удаляем старые диагнозы
             cursor.execute("DELETE FROM employee_diagnoses WHERE employee_id = ?", (employee_id,))
 
             # Добавляем новые диагнозы
@@ -261,14 +281,12 @@ class DatabaseManager:
                 for category_name, diagnosis_names in employee_data['diagnoses'].items():
                     for diagnosis_name in diagnosis_names:
                         if diagnosis_name.strip():
-                            # Находим ID категории
                             cursor.execute("SELECT id FROM diagnosis_categories WHERE category = ?", (category_name,))
                             category_row = cursor.fetchone()
 
                             if category_row:
                                 category_id = category_row['id']
 
-                                # Проверяем, существует ли уже такой диагноз
                                 cursor.execute("SELECT id FROM diagnoses WHERE name = ? AND category_id = ?",
                                                (diagnosis_name, category_id))
                                 existing_diag = cursor.fetchone()
@@ -276,12 +294,10 @@ class DatabaseManager:
                                 if existing_diag:
                                     diagnosis_id = existing_diag['id']
                                 else:
-                                    # Добавляем новый диагноз
                                     cursor.execute("INSERT INTO diagnoses (name, category_id) VALUES (?, ?)",
                                                    (diagnosis_name, category_id))
                                     diagnosis_id = cursor.lastrowid
 
-                                # Связываем диагноз с сотрудником
                                 cursor.execute("""
                                 INSERT INTO employee_diagnoses (employee_id, diagnosis_id)
                                 VALUES (?, ?)
@@ -337,6 +353,20 @@ class DatabaseManager:
         finally:
             conn.close()
 
+    def get_all_departments(self) -> List[Dict]:
+        """Получить все предприятия"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("SELECT id FROM departments ORDER BY id")
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            print(f"Error getting departments: {e}")
+            return []
+        finally:
+            conn.close()
+
     def search_employees(self, query: str) -> List[Dict]:
         """Поиск сотрудников"""
         conn = self.get_connection()
@@ -345,12 +375,35 @@ class DatabaseManager:
         try:
             search_term = f"%{query}%"
 
-            cursor.execute("""
-            SELECT DISTINCT e.id
-            FROM employees e
-            LEFT JOIN positions p ON e.position_id = p.id
-            WHERE e.lastname LIKE ? OR p.name LIKE ?
-            """, (search_term, search_term))
+            # Пробуем преобразовать запрос в число для поиска по department_id
+            try:
+                dept_id = int(query)
+                dept_search = True
+            except ValueError:
+                dept_search = False
+                dept_id = None
+
+            if dept_search:
+                cursor.execute("""
+                SELECT DISTINCT e.id
+                FROM employees e
+                LEFT JOIN positions p ON e.position_id = p.id
+                WHERE e.lastname LIKE ? 
+                   OR e.firstname LIKE ? 
+                   OR e.patronymic LIKE ? 
+                   OR p.name LIKE ?
+                   OR e.department_id = ?
+                """, (search_term, search_term, search_term, search_term, dept_id))
+            else:
+                cursor.execute("""
+                SELECT DISTINCT e.id
+                FROM employees e
+                LEFT JOIN positions p ON e.position_id = p.id
+                WHERE e.lastname LIKE ? 
+                   OR e.firstname LIKE ? 
+                   OR e.patronymic LIKE ? 
+                   OR p.name LIKE ?
+                """, (search_term, search_term, search_term, search_term))
 
             employee_ids = [row['id'] for row in cursor.fetchall()]
             employees = []
