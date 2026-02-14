@@ -82,9 +82,9 @@ class EmployeeTableModel(QAbstractTableModel):
                     return str(age) if age is not None else ""
                 elif col == 10:
                     score = HealthCalculator.calculate_health_score(employee)
-                    #desc = HealthCalculator.get_health_description(score)
-                    return f"{score:.2f}"
-                    #return f"{score:.2f} ({desc})"
+                    desc = HealthCalculator.get_health_description(score)
+                    #return f"{score:.2f}"
+                    return f"{score:.2f} ({desc})"
                 elif col == 9:
                     if hasattr(employee, 'diagnoses') and employee.diagnoses:
                         all_diagnoses = []
@@ -514,14 +514,11 @@ class RiskCalculatorDialog(QDialog):
         info_layout = QFormLayout()
 
         health_score = HealthCalculator.calculate_health_score(self.employee)
-        #health_desc = HealthCalculator.get_health_description(health_score)
+        health_desc = HealthCalculator.get_health_description(health_score)
 
         info_layout.addRow("ФИО:", QLabel(self.employee.full_name))
         info_layout.addRow("Должность:", QLabel(self.employee.position))
-        info_layout.addRow("Показатель здоровья:", QLabel(f"{health_score:.2f}"))
-                           #QLabel(f"{health_score:.2f} ({health_desc})"))
-
-
+        info_layout.addRow("Показатель здоровья:", QLabel(f"{health_score:.2f} ({health_desc})"))
 
         info_group.setLayout(info_layout)
         layout.addWidget(info_group)
@@ -662,6 +659,314 @@ class RiskCalculatorDialog(QDialog):
                                 "Пожалуйста, введите корректные числовые значения")
 
 
+class MultiRiskCalculatorDialog(QDialog):
+    """Диалог расчета риска для нескольких сотрудников"""
+
+    def __init__(self, parent=None, employees=None, fuzzy_system=None):
+        super().__init__(parent)
+        self.employees = employees if employees else []
+        self.results = {}  # Словарь для хранения результатов расчета
+
+        # Используем переданную систему или создаем новую
+        if fuzzy_system:
+            self.fuzzy_system = fuzzy_system
+        else:
+            self.fuzzy_system = FuzzyRiskSystem()
+
+        self.setup_ui()
+        self.load_employees_data()
+
+    def setup_ui(self):
+        self.setWindowTitle("Расчет риска для сотрудников")
+        self.resize(1000, 700)
+
+        layout = QVBoxLayout()
+
+        # 1. Панель с входными параметрами
+        params_group = QGroupBox("Параметры рабочей среды")
+        params_layout = QFormLayout()
+
+        # Вибрация
+        self.vibration_slider = QSlider(Qt.Orientation.Horizontal)
+        self.vibration_slider.setRange(0, 100)
+        self.vibration_slider.setValue(50)
+        self.vibration_label = QLabel("5.0")
+        self.vibration_value_edit = QLineEdit("5.0")
+        self.vibration_value_edit.setMaximumWidth(60)
+        self.vibration_value_edit.textChanged.connect(
+            lambda: self.update_slider_from_edit(self.vibration_slider,
+                                                 self.vibration_value_edit, 0, 10))
+
+        vibration_layout = QHBoxLayout()
+        vibration_layout.addWidget(self.vibration_slider)
+        vibration_layout.addWidget(self.vibration_value_edit)
+        params_layout.addRow("Вибрация (0-10):", vibration_layout)
+
+        # Шум
+        self.noise_slider = QSlider(Qt.Orientation.Horizontal)
+        self.noise_slider.setRange(0, 100)
+        self.noise_slider.setValue(30)
+        self.noise_value_edit = QLineEdit("3.0")
+        self.noise_value_edit.setMaximumWidth(60)
+        self.noise_value_edit.textChanged.connect(
+            lambda: self.update_slider_from_edit(self.noise_slider,
+                                                 self.noise_value_edit, 0, 10))
+
+        noise_layout = QHBoxLayout()
+        noise_layout.addWidget(self.noise_slider)
+        noise_layout.addWidget(self.noise_value_edit)
+        params_layout.addRow("Шум (0-10):", noise_layout)
+
+        # Химический фактор
+        self.chemical_slider = QSlider(Qt.Orientation.Horizontal)
+        self.chemical_slider.setRange(0, 100)
+        self.chemical_slider.setValue(20)
+        self.chemical_value_edit = QLineEdit("2.0")
+        self.chemical_value_edit.setMaximumWidth(60)
+        self.chemical_value_edit.textChanged.connect(
+            lambda: self.update_slider_from_edit(self.chemical_slider,
+                                                 self.chemical_value_edit, 0, 10))
+
+        chemical_layout = QHBoxLayout()
+        chemical_layout.addWidget(self.chemical_slider)
+        chemical_layout.addWidget(self.chemical_value_edit)
+        params_layout.addRow("Химический фактор (0-10):", chemical_layout)
+
+        # Подключение слайдеров
+        self.vibration_slider.valueChanged.connect(
+            lambda v: self.vibration_value_edit.setText(f"{v / 10:.1f}"))
+        self.noise_slider.valueChanged.connect(
+            lambda v: self.noise_value_edit.setText(f"{v / 10:.1f}"))
+        self.chemical_slider.valueChanged.connect(
+            lambda v: self.chemical_value_edit.setText(f"{v / 10:.1f}"))
+
+        params_group.setLayout(params_layout)
+        layout.addWidget(params_group)
+
+        # 2. Кнопка расчета для всех
+        calc_all_layout = QHBoxLayout()
+        self.calculate_all_btn = QPushButton("Рассчитать риск для всех")
+        self.calculate_all_btn.clicked.connect(self.calculate_risk_for_all)
+        self.calculate_all_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        calc_all_layout.addWidget(self.calculate_all_btn)
+        layout.addLayout(calc_all_layout)
+
+        # 3. Таблица с сотрудниками и результатами
+        table_group = QGroupBox("Результаты расчета")
+        table_layout = QVBoxLayout()
+
+        self.table_widget = QTableWidget()
+        self.table_widget.setColumnCount(6)
+        self.table_widget.setHorizontalHeaderLabels([
+            "ФИО", "Должность", "Предприятие", "Показатель здоровья", "Уровень риска", "Категория"
+        ])
+
+        # Настройка таблицы
+        header = self.table_widget.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # ФИО
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Должность
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Предприятие
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Показатель здоровья
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Уровень риска
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Категория
+
+        self.table_widget.setAlternatingRowColors(True)
+
+        table_layout.addWidget(self.table_widget)
+        table_group.setLayout(table_layout)
+        layout.addWidget(table_group)
+
+        # 4. Статистика
+        stats_layout = QHBoxLayout()
+        self.stats_label = QLabel("Выбрано сотрудников: 0")
+        stats_layout.addWidget(self.stats_label)
+        stats_layout.addStretch()
+        layout.addLayout(stats_layout)
+
+        # 5. Кнопки
+        button_layout = QHBoxLayout()
+
+        self.export_results_btn = QPushButton("Экспорт результатов")
+        self.export_results_btn.clicked.connect(self.export_results)
+
+        self.close_btn = QPushButton("Закрыть")
+        self.close_btn.clicked.connect(self.accept)
+
+        button_layout.addWidget(self.export_results_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(self.close_btn)
+
+        layout.addLayout(button_layout)
+
+        self.setLayout(layout)
+
+    def update_slider_from_edit(self, slider, edit, min_val, max_val):
+        """Обновление слайдера из текстового поля"""
+        try:
+            value = float(edit.text())
+            value = max(min_val, min(max_val, value))
+            slider_value = int((value - min_val) / (max_val - min_val) * 100)
+            slider.setValue(slider_value)
+        except ValueError:
+            pass
+
+    def load_employees_data(self):
+        """Загрузка данных сотрудников в таблицу"""
+        self.table_widget.setRowCount(len(self.employees))
+
+        for row, employee in enumerate(self.employees):
+            # ФИО
+            name_item = QTableWidgetItem(employee.full_name)
+            name_item.setData(Qt.ItemDataRole.UserRole, employee.id)  # Сохраняем ID сотрудника
+            self.table_widget.setItem(row, 0, name_item)
+
+            # Должность
+            self.table_widget.setItem(row, 1, QTableWidgetItem(employee.position))
+
+            # Предприятие
+            dept_item = QTableWidgetItem(str(employee.department_id))
+            dept_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table_widget.setItem(row, 2, dept_item)
+
+            # Показатель здоровья
+            health_score = HealthCalculator.calculate_health_score(employee)
+            health_desc = HealthCalculator.get_health_description(health_score)
+            health_item = QTableWidgetItem(f"{health_score:.2f} ({health_desc})")
+            health_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table_widget.setItem(row, 3, health_item)
+
+            # Уровень риска (пока пусто)
+            risk_item = QTableWidgetItem("-")
+            risk_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table_widget.setItem(row, 4, risk_item)
+
+            # Категория риска (пока пусто)
+            category_item = QTableWidgetItem("-")
+            category_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table_widget.setItem(row, 5, category_item)
+
+        self.stats_label.setText(f"Выбрано сотрудников: {len(self.employees)}")
+
+    def calculate_risk_for_all(self):
+        """Рассчитать риск для всех сотрудников"""
+        try:
+            # Получаем значения параметров
+            vibration_val = float(self.vibration_value_edit.text())
+            noise_val = float(self.noise_value_edit.text())
+            chemical_val = float(self.chemical_value_edit.text())
+
+            # Валидация
+            vibration_val = max(0, min(10, vibration_val))
+            noise_val = max(0, min(10, noise_val))
+            chemical_val = max(0, min(10, chemical_val))
+
+            # Рассчитываем риск для каждого сотрудника
+            for row, employee in enumerate(self.employees):
+                health_val = HealthCalculator.calculate_health_score(employee)
+
+                result = self.fuzzy_system.calculate_risk(
+                    vibration_val, noise_val, chemical_val, health_val
+                )
+
+                if result['success']:
+                    # Сохраняем результат
+                    self.results[employee.id] = result
+
+                    # Обновляем таблицу
+                    risk_item = QTableWidgetItem(result['percent'])
+                    risk_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                    # Цветовая индикация
+                    if result['category'] == "Низкий":
+                        risk_item.setBackground(QBrush(QColor(200, 255, 200)))  # Светло-зеленый
+                    elif result['category'] == "Средний":
+                        risk_item.setBackground(QBrush(QColor(255, 255, 200)))  # Светло-желтый
+                    elif result['category'] == "Высокий":
+                        risk_item.setBackground(QBrush(QColor(255, 200, 200)))  # Светло-красный
+
+                    self.table_widget.setItem(row, 4, risk_item)
+
+                    category_item = QTableWidgetItem(result['category'])
+                    category_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    category_item.setForeground(QBrush(QColor(result['color'])))
+                    category_item.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+                    self.table_widget.setItem(row, 5, category_item)
+
+            # Подсчет статистики
+            risk_counts = {"Низкий": 0, "Средний": 0, "Высокий": 0}
+            for result in self.results.values():
+                risk_counts[result['category']] += 1
+
+            stats_text = f"Выбрано сотрудников: {len(self.employees)} | "
+            stats_text += f"Низкий риск: {risk_counts['Низкий']} | "
+            stats_text += f"Средний риск: {risk_counts['Средний']} | "
+            stats_text += f"Высокий риск: {risk_counts['Высокий']}"
+
+            self.stats_label.setText(stats_text)
+
+            # Изменяем цвет кнопки
+            self.calculate_all_btn.setStyleSheet("background-color: #45a049; color: white; font-weight: bold;")
+
+        except ValueError as e:
+            QMessageBox.warning(self, "Ошибка ввода",
+                                "Пожалуйста, введите корректные числовые значения")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка расчета",
+                                 f"Произошла ошибка при расчете: {str(e)}")
+
+    def export_results(self):
+        """Экспорт результатов в Excel"""
+        if not self.results:
+            QMessageBox.warning(self, "Ошибка", "Нет результатов для экспорта!")
+            return
+
+        try:
+            import pandas as pd
+            from datetime import datetime
+
+            # Подготавливаем данные
+            data = []
+            for row, employee in enumerate(self.employees):
+                if employee.id in self.results:
+                    result = self.results[employee.id]
+                    health_score = HealthCalculator.calculate_health_score(employee)
+
+                    data.append({
+                        'ФИО': employee.full_name,
+                        'Должность': employee.position,
+                        'Предприятие': employee.department_id,
+                        'Показатель здоровья': f"{health_score:.2f}",
+                        'Уровень риска': result['percent'],
+                        'Категория риска': result['category'],
+                        'Вибрация': self.vibration_value_edit.text(),
+                        'Шум': self.noise_value_edit.text(),
+                        'Химический фактор': self.chemical_value_edit.text()
+                    })
+
+            # Создаем DataFrame
+            df = pd.DataFrame(data)
+
+            # Диалог сохранения
+            filename = f"risk_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Сохранить результаты",
+                filename,
+                "Excel Files (*.xlsx);;All Files (*)"
+            )
+
+            if file_path:
+                df.to_excel(file_path, index=False)
+                QMessageBox.information(self, "Успешно",
+                                        f"Результаты экспортированы в файл:\n{file_path}")
+
+        except ImportError:
+            QMessageBox.warning(self, "Ошибка",
+                                "Для экспорта результатов необходима библиотека pandas")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось экспортировать: {str(e)}")
+
+
 class MainWindow(QMainWindow):
     """Главное окно приложения"""
 
@@ -724,10 +1029,25 @@ class MainWindow(QMainWindow):
 
         main_layout.addLayout(search_layout)
 
+        # Панель выбора сотрудников
+        selection_layout = QHBoxLayout()
+
+        self.select_all_btn = QPushButton("Выбрать всех")
+        self.select_all_btn.clicked.connect(self.select_all_employees)
+
+        self.deselect_all_btn = QPushButton("Снять выделение")
+        self.deselect_all_btn.clicked.connect(self.deselect_all_employees)
+
+        selection_layout.addWidget(self.select_all_btn)
+        selection_layout.addWidget(self.deselect_all_btn)
+        selection_layout.addStretch()
+
+        main_layout.addLayout(selection_layout)
+
         # Таблица работников
         self.table_view = QTableView()
         self.table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table_view.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.table_view.doubleClicked.connect(self.on_table_double_click)
 
         # Настройки таблицы
@@ -1113,25 +1433,39 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Ошибка при удалении: {str(e)}")
 
+    def select_all_employees(self):
+        """Выбрать всех сотрудников в таблице"""
+        self.table_view.selectAll()
+        self.status_bar.showMessage(f"Выбрано всех сотрудников", 3000)
+
+    def deselect_all_employees(self):
+        """Снять выделение со всех сотрудников"""
+        self.table_view.clearSelection()
+        self.status_bar.showMessage("Выделение снято", 3000)
+
     def calculate_risk_for_selected(self):
-        """Расчет риска для выбранного работника"""
-        selected = self.table_view.selectionModel().selectedRows()
-        if not selected:
-            QMessageBox.warning(self, "Ошибка", "Выберите работника для расчета риска!")
+        """Расчет риска для выбранных сотрудников"""
+        selected_rows = self.table_view.selectionModel().selectedRows()
+
+        if not selected_rows:
+            QMessageBox.warning(self, "Ошибка", "Выберите сотрудников для расчета риска!")
             return
 
         try:
-            row = selected[0].row()
-            employee_id = self.model.employees[row].id
-            employee = self.employee_manager.get_employee_by_id(employee_id)
+            # Собираем выбранных сотрудников
+            selected_employees = []
+            for index in selected_rows:
+                row = index.row()
+                employee_id = self.model.employees[row].id
+                employee = self.employee_manager.get_employee_by_id(employee_id)
+                if employee:
+                    selected_employees.append(employee)
 
-            if employee and self.fuzzy_system:
-                dialog = RiskCalculatorDialog(self, employee, self.fuzzy_system)
+            if selected_employees and self.fuzzy_system:
+                dialog = MultiRiskCalculatorDialog(self, selected_employees, self.fuzzy_system)
                 dialog.exec()
             elif not self.fuzzy_system:
                 QMessageBox.warning(self, "Ошибка", "Система нечеткой логики не доступна")
-            else:
-                QMessageBox.warning(self, "Ошибка", "Сотрудник не найден")
 
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Ошибка при расчете риска: {str(e)}")
