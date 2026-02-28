@@ -2,6 +2,11 @@ import numpy as np
 import skfuzzy as fuzz
 from skfuzzy import control as ctrl
 
+# Фиксированные имена переменных
+INPUT_VARS = ["vibration", "noise", "chemical", "health"]
+OUTPUT_VAR = "risk"
+
+
 class FuzzyRiskSystem:
     """Гибкая система нечеткого вывода с конфигурацией из JSON"""
 
@@ -16,6 +21,8 @@ class FuzzyRiskSystem:
         self.input_variables = {}
         self.output_variables = {}
         self.rules = []
+        self.risk_ctrl = None
+        self.simulation = None
 
         if config:
             self.create_system_from_config(config)
@@ -27,12 +34,13 @@ class FuzzyRiskSystem:
         self.config = config
 
         # Создание входных переменных
-        for var_name, var_config in config['variables'].items():
-            self._create_input_variable(var_name, var_config)
+        for var_name in INPUT_VARS:
+            if var_name in config['variables']:
+                self._create_input_variable(var_name, config['variables'][var_name])
 
-        # Создание выходных переменных
-        for var_name, var_config in config.get('output', {}).items():
-            self._create_output_variable(var_name, var_config)
+        # Создание выходной переменной
+        if OUTPUT_VAR in config.get('output', {}):
+            self._create_output_variable(OUTPUT_VAR, config['output'][OUTPUT_VAR])
 
         # Создание правил
         self._create_rules(config.get('rules', []))
@@ -42,11 +50,8 @@ class FuzzyRiskSystem:
 
     def _create_input_variable(self, name, config):
         """Создание входной переменной"""
-        if 'range' not in config:
-            raise ValueError(f"Отсутствует range для переменной {name}")
-
-        # Создание универсума
-        universe = np.arange(*config['range'])
+        # Range больше не используется, всегда 0-1
+        universe = np.arange(0, 1.01, 0.01)
         variable = ctrl.Antecedent(universe, name)
 
         # Создание термов
@@ -58,11 +63,7 @@ class FuzzyRiskSystem:
 
     def _create_output_variable(self, name, config):
         """Создание выходной переменной"""
-        if 'range' not in config:
-            raise ValueError(f"Отсутствует range для переменной {name}")
-
-        # Создание универсума
-        universe = np.arange(*config['range'])
+        universe = np.arange(0, 1.01, 0.01)
         variable = ctrl.Consequent(universe, name)
 
         # Создание термов
@@ -87,12 +88,23 @@ class FuzzyRiskSystem:
             variable[term_name] = fuzz.gbellmf(variable.universe, *params)
         elif term_type == 'sigmf':
             variable[term_name] = fuzz.sigmf(variable.universe, *params)
+        elif term_type == 'zmf':
+            variable[term_name] = fuzz.zmf(variable.universe, *params)
+        elif term_type == 'smf':
+            variable[term_name] = fuzz.smf(variable.universe, *params)
+        elif term_type == 'pimf':
+            variable[term_name] = fuzz.pimf(variable.universe, *params)
         else:
             raise ValueError(f"Неизвестный тип функции: {term_type}")
 
     def _create_rules(self, rules_config):
         """Создание правил из конфигурации"""
         self.rules = []
+
+        if OUTPUT_VAR not in self.output_variables:
+            raise ValueError("Выходная переменная 'risk' не найдена")
+
+        output_var = self.output_variables[OUTPUT_VAR]
 
         for rule_config in rules_config:
             condition = None
@@ -104,6 +116,9 @@ class FuzzyRiskSystem:
 
                 if var_name not in self.input_variables:
                     raise ValueError(f"Неизвестная переменная: {var_name}")
+
+                if term_name not in self.input_variables[var_name].terms:
+                    raise ValueError(f"Неизвестный терм '{term_name}' для переменной '{var_name}'")
 
                 term = self.input_variables[var_name][term_name]
 
@@ -118,13 +133,10 @@ class FuzzyRiskSystem:
 
             # Обработка вывода
             then_term = rule_config['then']
-            if 'risk' not in self.output_variables:
-                raise ValueError("Выходная переменная 'risk' не найдена")
+            if then_term not in output_var.terms:
+                raise ValueError(f"Неизвестный терм '{then_term}' для выходной переменной '{OUTPUT_VAR}'")
 
-            if then_term not in self.output_variables['risk'].terms:
-                raise ValueError(f"Неизвестный терм риска: {then_term}")
-
-            output = self.output_variables['risk'][then_term]
+            output = output_var[then_term]
 
             # Создание правила
             rule = ctrl.Rule(condition, output)
@@ -140,8 +152,8 @@ class FuzzyRiskSystem:
 
     def create_default_system(self):
         """Создание системы по умолчанию"""
-        from config_loader import ConfigLoader
-        default_config = ConfigLoader.get_default_config()
+        from config_editor import get_default_config
+        default_config = get_default_config()
         self.create_system_from_config(default_config)
 
     def calculate_risk(self, vibration_val, noise_val, chemical_val, health_val):
@@ -149,33 +161,52 @@ class FuzzyRiskSystem:
         Расчет уровня риска
 
         Args:
-            vibration_val: 0-10
-            noise_val: 0-10
-            chemical_val: 0-10
-            health_val: 0-1
+            vibration_val: значение вибрации (0-1)
+            noise_val: значение шума (0-1)
+            chemical_val: значение химического фактора (0-1)
+            health_val: показатель здоровья (0-1)
 
         Returns:
             Словарь с результатами расчета
         """
         try:
+            if not self.simulation:
+                raise ValueError("Система не инициализирована")
+
+            # Ограничиваем значения диапазоном 0-1
+            vibration_val = max(0.0, min(1.0, vibration_val))
+            noise_val = max(0.0, min(1.0, noise_val))
+            chemical_val = max(0.0, min(1.0, chemical_val))
+            health_val = max(0.0, min(1.0, health_val))
+
             # Устанавливаем входные значения
-            self.simulation.input['vibration'] = max(0, min(10, vibration_val))
-            self.simulation.input['noise'] = max(0, min(10, noise_val))
-            self.simulation.input['chemical'] = max(0, min(10, chemical_val))
-            self.simulation.input['health'] = max(0.0, min(1.0, health_val))
+            if 'vibration' in self.input_variables:
+                self.simulation.input['vibration'] = vibration_val
+
+            if 'noise' in self.input_variables:
+                self.simulation.input['noise'] = noise_val
+
+            if 'chemical' in self.input_variables:
+                self.simulation.input['chemical'] = chemical_val
+
+            if 'health' in self.input_variables:
+                self.simulation.input['health'] = health_val
 
             # Выполняем расчет
             self.simulation.compute()
-            risk_value = self.simulation.output['risk']
 
-            # Определяем категорию риска
-            category, color = self._categorize_risk(risk_value)
+            # Получаем значение выходной переменной
+            risk_value = self.simulation.output[OUTPUT_VAR]
+
+            risk_value = max(0.0, min(1.0, risk_value))
+
+            # Определяем категорию риска на основе текущих термов
+            category = self._categorize_risk(risk_value)
 
             return {
-                'value': round(risk_value, 2),
-                'percent': f"{risk_value:.1f}%",
+                'value': round(risk_value, 3),
+                'percent': f"{risk_value*100:.1f}%",  # Конвертируем в проценты для отображения
                 'category': category,
-                'color': color,
                 'success': True
             }
 
@@ -185,21 +216,39 @@ class FuzzyRiskSystem:
                 'value': 0,
                 'percent': "0%",
                 'category': "Ошибка расчета",
-                'color': "#999999",
                 'success': False,
                 'error': str(e)
             }
 
     def _categorize_risk(self, risk_value):
-        """Категоризация риска"""
-        if risk_value <= 25:
-            return "Очень низкий", "#4CAF50"
-        elif risk_value <= 50:
-            return "Низкий", "#8BC34A"
-        elif risk_value <= 75:
-            return "Средний", "#FFC107"
-        elif risk_value <= 90:
-            return "Высокий", "#FF9800"
-        else:
-            return "Очень высокий", "#F44336"
+        """
+        Категоризация риска на основе текущих термов выходной переменной
 
+        Args:
+            risk_value: числовое значение риска (0-1)
+
+        Returns:
+            str: название категории
+        """
+        if OUTPUT_VAR not in self.output_variables:
+            return "Неизвестно"
+
+        output_var = self.output_variables[OUTPUT_VAR]
+
+        # Находим терм с максимальной степенью принадлежности
+        max_membership = 0
+        best_term = None
+
+        for term_name in output_var.terms:
+            # Вычисляем степень принадлежности для данного значения
+            membership = fuzz.interp_membership(
+                output_var.universe,
+                output_var[term_name].mf,
+                risk_value
+            )
+
+            if membership > max_membership:
+                max_membership = membership
+                best_term = term_name
+
+        return best_term if best_term else "Неизвестно"

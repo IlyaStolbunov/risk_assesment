@@ -1,0 +1,231 @@
+{
+  "variables": {
+    "vibration": {
+      "terms": {
+        "low": {
+          "type": "trimf",
+          "params": [
+            0,
+            0,
+            0.5
+          ]
+        },
+        "medium": {
+          "type": "trimf",
+          "params": [
+            0,
+            0.5,
+            1
+          ]
+        },
+        "high": {
+          "type": "trimf",
+          "params": [
+            0.5,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    "noise": {
+      "terms": {
+        "low": {
+          "type": "trimf",
+          "params": [
+            0,
+            0,
+            0.5
+          ]
+        },
+        "medium": {
+          "type": "trimf",
+          "params": [
+            0,
+            0.5,
+            1
+          ]
+        },
+        "high": {
+          "type": "trimf",
+          "params": [
+            0.5,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    "chemical": {
+      "terms": {
+        "low": {
+          "type": "trimf",
+          "params": [
+            0,
+            0,
+            0.4
+          ]
+        },
+        "medium": {
+          "type": "trimf",
+          "params": [
+            0,
+            0.4,
+            0.8
+          ]
+        },
+        "high": {
+          "type": "trimf",
+          "params": [
+            0.4,
+            0.8,
+            1
+          ]
+        }
+      }
+    },
+    "health": {
+      "terms": {
+        "bad": {
+          "type": "trimf",
+          "params": [
+            0,
+            0,
+            0.5
+          ]
+        },
+        "average": {
+          "type": "trimf",
+          "params": [
+            0,
+            0.5,
+            1
+          ]
+        },
+        "good": {
+          "type": "trimf",
+          "params": [
+            0.5,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  },
+  "output": {
+    "risk": {
+      "terms": {
+        "very_low": {
+          "type": "trimf",
+          "params": [
+            0,
+            0,
+            0.25
+          ]
+        },
+        "low": {
+          "type": "trimf",
+          "params": [
+            0,
+            0.25,
+            0.5
+          ]
+        },
+        "medium": {
+          "type": "trimf",
+          "params": [
+            0.25,
+            0.5,
+            0.75
+          ]
+        },
+        "high": {
+          "type": "trimf",
+          "params": [
+            0.5,
+            0.75,
+            1
+          ]
+        },
+        "very_high": {
+          "type": "trimf",
+          "params": [
+            0.75,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  },
+  "rules": [
+    {
+      "if": [
+        {
+          "variable": "vibration",
+          "term": "high",
+          "operator": "or"
+        },
+        {
+          "variable": "noise",
+          "term": "high",
+          "operator": "or"
+        },
+        {
+          "variable": "chemical",
+          "term": "high"
+        }
+      ],
+      "then": "high"
+    },
+    {
+      "if": [
+        {
+          "variable": "health",
+          "term": "bad",
+          "operator": "and"
+        },
+        {
+          "variable": "vibration",
+          "term": "medium",
+          "operator": "or"
+        },
+        {
+          "variable": "noise",
+          "term": "medium",
+          "operator": "or"
+        },
+        {
+          "variable": "chemical",
+          "term": "medium"
+        }
+      ],
+      "then": "very_high"
+    },
+    {
+      "if": [
+        {
+          "variable": "vibration",
+          "term": "low",
+          "operator": "and"
+        },
+        {
+          "variable": "noise",
+          "term": "low",
+          "operator": "and"
+        },
+        {
+          "variable": "chemical",
+          "term": "low",
+          "operator": "and"
+        },
+        {
+          "variable": "health",
+          "term": "good"
+        }
+      ],
+      "then": "very_low"
+    }
+  ]
+}
