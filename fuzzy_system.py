@@ -50,8 +50,7 @@ class FuzzyRiskSystem:
 
     def _create_input_variable(self, name, config):
         """Создание входной переменной"""
-        # Range больше не используется, всегда 0-1
-        universe = np.arange(0, 1.01, 0.01)
+        universe = np.arange(0, 1.01, 0.001)
         variable = ctrl.Antecedent(universe, name)
 
         # Создание термов
@@ -63,7 +62,7 @@ class FuzzyRiskSystem:
 
     def _create_output_variable(self, name, config):
         """Создание выходной переменной"""
-        universe = np.arange(0, 1.01, 0.01)
+        universe = np.arange(0, 1.01, 0.001)
         variable = ctrl.Consequent(universe, name)
 
         # Создание термов

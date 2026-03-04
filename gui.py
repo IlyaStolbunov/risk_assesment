@@ -699,7 +699,7 @@ class MultiRiskCalculatorDialog(QDialog):
                     self.results[employee.id] = result
 
                     # Обновляем таблицу
-                    risk_item = QTableWidgetItem(result['percent'])
+                    risk_item = QTableWidgetItem(str(result['value']))
                     risk_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     self.table_widget.setItem(row, 4, risk_item)
 
@@ -739,7 +739,7 @@ class MultiRiskCalculatorDialog(QDialog):
                         'Должность': employee.position,
                         'Предприятие': employee.department_id,
                         'Показатель здоровья': f"{health_score:.2f}",
-                        'Уровень риска': result['percent'],
+                        'Уровень риска': str(result['value']),
                         'Категория риска': result['category'],
                         'Вибрация': self.vibration_value_edit.text(),
                         'Шум': self.noise_value_edit.text(),

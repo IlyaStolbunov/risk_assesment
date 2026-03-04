@@ -6,7 +6,8 @@ import matplotlib
 import skfuzzy as fuzz
 
 matplotlib.use('Qt5Agg')
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import (FigureCanvasQTAgg as FigureCanvas,
+                                                NavigationToolbar2QT as NavigationToolbar)
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 
@@ -447,10 +448,6 @@ class VariableWidget(QWidget):
         """Получение списка имен термов"""
         return list(self.term_widgets.keys())
 
-    def get_range(self):
-        """Получение диапазона переменной"""
-        return [0, 1, 0.01]
-
     def get_term_configs(self):
         """Получение конфигураций всех термов"""
         return {name: widget.get_config() for name, widget in self.term_widgets.items()}
@@ -799,10 +796,6 @@ class OutputVariableWidget(QWidget):
         """Получение списка имен термов"""
         return list(self.term_widgets.keys())
 
-    def get_range(self):
-        """Получение диапазона переменной"""
-        return [0, 1, 0.01]
-
     def get_term_configs(self):
         """Получение конфигураций всех термов"""
         return {name: widget.get_config() for name, widget in self.term_widgets.items()}
@@ -846,28 +839,30 @@ class MembershipFunctionVisualizer(QWidget):
         super().__init__()
         self.current_var_name = None
         self.current_var_type = "input"  # "input" или "output"
-        self.var_range = [0, 1, 0.01]
         self.terms = {}
         self.setup_ui()
 
     def setup_ui(self):
         layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(20, 30, 20, 0)
 
         # График
         self.canvas = MplCanvas(self, width=6, height=4, dpi=100)
         layout.addWidget(self.canvas)
+
+        # Панель инструментов для холста
+        self.toolbar = NavigationToolbar(self.canvas, self)
+        layout.addWidget(self.toolbar)
 
         self.setLayout(layout)
 
         # Изначально пустой график
         self.clear_display()
 
-    def update_display(self, var_name, var_type, var_range, terms):
+    def update_display(self, var_name, var_type, terms):
         """Обновление отображения графика"""
         self.current_var_name = var_name
         self.current_var_type = var_type
-        self.var_range = var_range
         self.terms = terms
 
         # Очищаем график
@@ -886,8 +881,8 @@ class MembershipFunctionVisualizer(QWidget):
             self.canvas.draw()
             return
 
-        # Создаем универсум (0-1 с шагом 0.01)
-        universe = np.arange(0, 1.01, 0.01)
+        # Создаем универсум (0-1 с шагом 0.001)
+        universe = np.arange(0, 1.01, 0.001)
 
         # Определяем цвета для разных термов
         colors = plt.cm.tab10(np.linspace(0, 1, len(terms)))
@@ -1259,16 +1254,14 @@ class ConfigEditor(QDialog):
         """Обновление визуализации для входной переменной"""
         if var_name in self.variable_widgets:
             widget = self.variable_widgets[var_name]
-            var_range = widget.get_range()
             terms = widget.get_term_configs()
-            self.input_visualizer.update_display(var_name, "input", var_range, terms)
+            self.input_visualizer.update_display(var_name, "input", terms)
 
     def update_output_visualization(self):
         """Обновление визуализации для выходной переменной"""
         if self.output_widget:
-            var_range = self.output_widget.get_range()
             terms = self.output_widget.get_term_configs()
-            self.output_visualizer.update_display(OUTPUT_VAR, "output", var_range, terms)
+            self.output_visualizer.update_display(OUTPUT_VAR, "output", terms)
 
     def on_tab_changed(self, index):
         """Обработка смены вкладки"""

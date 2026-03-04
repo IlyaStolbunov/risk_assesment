@@ -1,4 +1,3 @@
-# file name: health_calculator.py
 class HealthCalculator:
     """Калькулятор показателя здоровья с учетом данных из БД"""
 
@@ -56,7 +55,7 @@ class HealthCalculator:
                 base_score -= exp_penalty
 
         # Ограничиваем от 0 до 1
-        return max(0.0, min(1.0, base_score))
+        return 1 - max(0.0, min(1.0, base_score))
 
     @staticmethod
     def get_health_description(score):
