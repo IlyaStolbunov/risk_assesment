@@ -31,6 +31,7 @@ class DatabaseManager:
                 e.birth_date,
                 e.start_year,
                 d.id as department_id,
+                d.name as department_name,
                 eh.prof_harm_code,
                 eh.prof_harm_year,
                 ed.disability_group
@@ -111,6 +112,7 @@ class DatabaseManager:
                 e.birth_date,
                 e.start_year,
                 d.id as department_id,
+                d.name as department_name,
                 eh.prof_harm_code,
                 eh.prof_harm_year,
                 ed.disability_group
@@ -359,7 +361,7 @@ class DatabaseManager:
         cursor = conn.cursor()
 
         try:
-            cursor.execute("SELECT id FROM departments ORDER BY id")
+            cursor.execute("SELECT id, name FROM departments ORDER BY name")
             return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             print(f"Error getting departments: {e}")
@@ -375,35 +377,17 @@ class DatabaseManager:
         try:
             search_term = f"%{query}%"
 
-            # Пробуем преобразовать запрос в число для поиска по department_id
-            try:
-                dept_id = int(query)
-                dept_search = True
-            except ValueError:
-                dept_search = False
-                dept_id = None
-
-            if dept_search:
-                cursor.execute("""
-                SELECT DISTINCT e.id
-                FROM employees e
-                LEFT JOIN positions p ON e.position_id = p.id
-                WHERE e.lastname LIKE ? 
-                   OR e.firstname LIKE ? 
-                   OR e.patronymic LIKE ? 
-                   OR p.name LIKE ?
-                   OR e.department_id = ?
-                """, (search_term, search_term, search_term, search_term, dept_id))
-            else:
-                cursor.execute("""
-                SELECT DISTINCT e.id
-                FROM employees e
-                LEFT JOIN positions p ON e.position_id = p.id
-                WHERE e.lastname LIKE ? 
-                   OR e.firstname LIKE ? 
-                   OR e.patronymic LIKE ? 
-                   OR p.name LIKE ?
-                """, (search_term, search_term, search_term, search_term))
+            cursor.execute("""
+            SELECT DISTINCT e.id
+            FROM employees e
+            LEFT JOIN positions p ON e.position_id = p.id
+            LEFT JOIN departments d ON e.department_id = d.id
+            WHERE e.lastname LIKE ? 
+               OR e.firstname LIKE ? 
+               OR e.patronymic LIKE ? 
+               OR p.name LIKE ?
+               OR d.name LIKE ?
+            """, (search_term, search_term, search_term, search_term, search_term))
 
             employee_ids = [row['id'] for row in cursor.fetchall()]
             employees = []
@@ -446,5 +430,93 @@ class DatabaseManager:
         except Exception as e:
             print(f"Error getting positions: {e}")
             return []
+        finally:
+            conn.close()
+
+    def get_department_by_id(self, department_id: int) -> Optional[Dict]:
+        """Получить предприятие по ID"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("SELECT id, name FROM departments WHERE id = ?", (department_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        except Exception as e:
+            print(f"Error getting department: {e}")
+            return None
+        finally:
+            conn.close()
+
+    def add_department(self, name: str) -> int:
+        """Добавить новое предприятие"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Проверка на уникальность
+            cursor.execute("SELECT id FROM departments WHERE name = ?", (name,))
+            if cursor.fetchone():
+                raise ValueError(f"Предприятие с названием '{name}' уже существует")
+
+            cursor.execute("INSERT INTO departments (name) VALUES (?)", (name,))
+            conn.commit()
+            return cursor.lastrowid
+        except Exception as e:
+            conn.rollback()
+            print(f"Error adding department: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def update_department(self, department_id: int, name: str) -> bool:
+        """Обновить название предприятия"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Проверка на уникальность (исключая текущее предприятие)
+            cursor.execute("SELECT id FROM departments WHERE name = ? AND id != ?", (name, department_id))
+            if cursor.fetchone():
+                raise ValueError(f"Предприятие с названием '{name}' уже существует")
+
+            cursor.execute("UPDATE departments SET name = ? WHERE id = ?", (name, department_id))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            conn.rollback()
+            print(f"Error updating department: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def delete_department(self, department_id: int) -> bool:
+        """Удалить предприятие и всех его сотрудников"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Получаем всех сотрудников этого предприятия
+            cursor.execute("SELECT id FROM employees WHERE department_id = ?", (department_id,))
+            employees = cursor.fetchall()
+
+            # Удаляем всех сотрудников (каскадно удалятся их связи благодаря внешним ключам)
+            for emp in employees:
+                emp_id = emp['id']
+                cursor.execute("DELETE FROM employee_diagnoses WHERE employee_id = ?", (emp_id,))
+                cursor.execute("DELETE FROM employee_harm WHERE employee_id = ?", (emp_id,))
+                cursor.execute("DELETE FROM employee_disability WHERE employee_id = ?", (emp_id,))
+
+            cursor.execute("DELETE FROM employees WHERE department_id = ?", (department_id,))
+
+            # Удаляем предприятие
+            cursor.execute("DELETE FROM departments WHERE id = ?", (department_id,))
+
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            conn.rollback()
+            print(f"Error deleting department: {e}")
+            raise
         finally:
             conn.close()

@@ -73,8 +73,7 @@ class EmployeeTableModel(QAbstractTableModel):
                 elif col == 2:
                     return employee.position
                 elif col == 3:
-                    return str(employee.department_id)\
-                        if hasattr(employee, 'department_id') and employee.department_id else ""
+                    return employee.department_name
                 elif col == 4:
                     return employee.gender
                 elif col == 5:
@@ -301,7 +300,7 @@ class AddEditEmployeeDialog(QDialog):
         self.department_combo = QComboBox()
         departments = manager.get_departments()
         for dept in departments:
-            self.department_combo.addItem(f"№ {dept['id']}", dept['id'])
+            self.department_combo.addItem(dept['name'], dept['id'])
         info_layout.addRow("Предприятие:", self.department_combo)
 
         # Пол
@@ -856,7 +855,7 @@ class MainWindow(QMainWindow):
         # Настройки таблицы
         self.table_view.setAlternatingRowColors(True)
         self.table_view.setShowGrid(True)  # Показывать сетку
-        self.table_view.setSortingEnabled(True)
+        #self.table_view.setSortingEnabled(True)
 
         #self.table_view.horizontalHeader().setStretchLastSection(True)
         #self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -953,6 +952,12 @@ class MainWindow(QMainWindow):
         edit_config_action = QAction("Редактировать конфигурацию...", self)
         edit_config_action.triggered.connect(self.edit_configuration)
         settings_menu.addAction(edit_config_action)
+
+        # Новый пункт меню для справочника предприятий
+        departments_action = QAction("Управление предприятиями...", self)
+        departments_action.triggered.connect(self.open_departments_window)
+        settings_menu.addAction(departments_action)
+
 
     def export_to_excel(self):
         """Экспорт таблицы в Excel"""
@@ -1084,6 +1089,12 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Не удалось загрузить сотрудников: {str(e)}")
 
+    def open_departments_window(self):
+        """Открыть окно управления предприятиями"""
+        from department_manager import DepartmentsWindow
+        self.departments_window = DepartmentsWindow(self)
+        self.departments_window.show()
+
     def search_employees(self):
         """Поиск работников по трем критериям"""
         # Получаем значения из полей поиска
@@ -1127,16 +1138,9 @@ class MainWindow(QMainWindow):
 
                 # Поиск по предприятию
                 if match and department_query:
-                    try:
-                        # Пробуем преобразовать в число для сравнения с номером предприятия
-                        dept_id = int(department_query)
-                        if employee.department_id != dept_id:
-                            match = False
-                    except ValueError:
-                        # Если не число, ищем как текст
-                        if not (str(employee.department_id) and
-                                department_query.lower() in str(employee.department_id).lower()):
-                            match = False
+                    if not (employee.department_name and
+                            department_query.lower() in employee.department_name.lower()):
+                        match = False
 
                 if match:
                     filtered_employees.append(employee)

@@ -1,7 +1,6 @@
 from database import DatabaseManager
 from datetime import datetime
 
-
 class Employee:
     """Класс работника с данными из БД"""
 
@@ -16,6 +15,7 @@ class Employee:
         self.birth_date = employee_dict.get('birth_date')
         self.start_year = employee_dict.get('start_year')
         self.department_id = employee_dict.get('department_id')
+        self.department_name = employee_dict.get('department_name', '')
 
         # Диагнозы
         self.diagnoses = employee_dict.get('diagnoses', {})
@@ -79,7 +79,7 @@ class Employee:
 class EmployeeManager:
     """Менеджер работников (работает с БД)"""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str = "database/risk_assesment.db"):
         self.db = DatabaseManager(db_path)
 
     def get_all_employees(self) -> list:
@@ -126,3 +126,19 @@ class EmployeeManager:
     def get_departments(self) -> list:
         """Получить список предприятий"""
         return self.db.get_all_departments()
+
+    def get_department_by_id(self, department_id: int) -> dict:
+        """Получить предприятие по ID"""
+        return self.db.get_department_by_id(department_id)
+
+    def add_department(self, name: str) -> int:
+        """Добавить новое предприятие"""
+        return self.db.add_department(name)
+
+    def update_department(self, department_id: int, name: str) -> bool:
+        """Обновить предприятие"""
+        return self.db.update_department(department_id, name)
+
+    def delete_department(self, department_id: int) -> bool:
+        """Удалить предприятие и всех его сотрудников"""
+        return self.db.delete_department(department_id)
