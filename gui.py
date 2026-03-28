@@ -11,6 +11,8 @@ from employee_manager import EmployeeManager
 from health_calculator import HealthCalculator
 from fuzzy_system import FuzzyRiskSystem
 
+from normalizers import ParameterNormalizer
+
 DB_URL = 'database/risk_assesment.db'
 
 class ConfigInfoDialog(QDialog):
@@ -317,7 +319,7 @@ class AddEditEmployeeDialog(QDialog):
         self.birth_date_edit.setDate(QDate.currentDate().addYears(-30))
         info_layout.addRow("Дата рождения:", self.birth_date_edit)
 
-        # Дата начала работы
+        # Дата приема на работу
         self.start_date_edit = QDateEdit()
         self.start_date_edit.setCalendarPopup(True)
         self.start_date_edit.setDate(QDate.currentDate())
@@ -489,15 +491,127 @@ class AddEditEmployeeDialog(QDialog):
         """Получить данные из формы"""
         return getattr(self, 'employee_data', None)
 
+
+class ParameterInputWidget(QWidget):
+    """Виджет для ввода физического параметра с нормализацией"""
+
+    def __init__(self, param_name, param_type, parent=None):
+        super().__init__(parent)
+        self.param_name = param_name
+        self.param_type = param_type
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout()
+        layout.setSpacing(5)
+
+        # Заголовок с единицами измерения
+        info = ParameterNormalizer.get_parameter_info(self.param_type)
+        self.title_label = QLabel(f"{self.param_name} ({info['description']})")
+        self.title_label.setStyleSheet("font-weight: bold;")
+        layout.addWidget(self.title_label)
+
+        # Слайдер (в нормализованной шкале 0-100)
+        slider_layout = QHBoxLayout()
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(0, 100)
+        self.slider.setValue(0)
+        slider_layout.addWidget(self.slider)
+
+        # Отображение физического значения
+        self.value_label = QLabel("0.00")
+        self.value_label.setMinimumWidth(80)
+        self.value_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        slider_layout.addWidget(self.value_label)
+
+        layout.addLayout(slider_layout)
+
+        # Отображение нормализованного значения
+        norm_layout = QHBoxLayout()
+        norm_layout.addWidget(QLabel("Нормализованное значение:"))
+        self.norm_label = QLabel("0.00")
+        self.norm_label.setStyleSheet("color: #666;")
+        norm_layout.addWidget(self.norm_label)
+        norm_layout.addStretch()
+
+        layout.addLayout(norm_layout)
+
+        # Подключение сигналов
+        self.slider.valueChanged.connect(self.on_slider_changed)
+
+        self.setLayout(layout)
+
+        # Текущее физическое значение
+        self.physical_value = 0.0
+
+    def on_slider_changed(self, norm_value):
+        """При изменении слайдера обновляем физическое значение"""
+        normalized = norm_value / 100.0
+
+        # Конвертируем в физическое значение
+        if self.param_type == 'noise':
+            physical = ParameterNormalizer.denormalize_noise(normalized)
+        elif self.param_type == 'vibration':
+            physical = ParameterNormalizer.denormalize_vibration(normalized)
+        elif self.param_type == 'chemical':
+            physical = ParameterNormalizer.denormalize_chemical(normalized)
+        else:
+            physical = normalized
+
+        self.physical_value = physical
+
+        # Обновляем отображение
+        if self.param_type == 'chemical':
+            self.value_label.setText(f"{physical:.3f}")
+        else:
+            self.value_label.setText(f"{physical:.1f}")
+
+        self.norm_label.setText(f"{normalized:.2f}")
+
+    def set_physical_value(self, physical_value):
+        """Установить физическое значение (обновляет слайдер)"""
+        self.physical_value = physical_value
+
+        # Конвертируем в нормализованное
+        if self.param_type == 'noise':
+            normalized = ParameterNormalizer.normalize_noise(physical_value)
+        elif self.param_type == 'vibration':
+            normalized = ParameterNormalizer.normalize_vibration(physical_value)
+        elif self.param_type == 'chemical':
+            normalized = ParameterNormalizer.normalize_chemical(physical_value)
+        else:
+            normalized = physical_value
+
+        # Обновляем слайдер без генерации сигнала
+        self.slider.blockSignals(True)
+        self.slider.setValue(int(normalized * 100))
+        self.slider.blockSignals(False)
+
+        # Обновляем отображение
+        if self.param_type == 'chemical':
+            self.value_label.setText(f"{physical_value:.3f}")
+        else:
+            self.value_label.setText(f"{physical_value:.1f}")
+
+        self.norm_label.setText(f"{normalized:.2f}")
+
+    def get_normalized_value(self):
+        """Получить нормализованное значение (0-1)"""
+        return self.slider.value() / 100.0
+
+    def get_physical_value(self):
+        """Получить физическое значение"""
+        return self.physical_value
+
+
 class MultiRiskCalculatorDialog(QDialog):
     """Диалог расчета риска для нескольких сотрудников"""
 
     def __init__(self, parent=None, employees=None, fuzzy_system=None):
         super().__init__(parent)
         self.employees = employees if employees else []
-        self.results = {}  # Словарь для хранения результатов расчета
+        self.results = {}
 
-        # Используем переданную систему или создаем новую
         if fuzzy_system:
             self.fuzzy_system = fuzzy_system
         else:
@@ -508,67 +622,23 @@ class MultiRiskCalculatorDialog(QDialog):
 
     def setup_ui(self):
         self.setWindowTitle("Расчет риска для сотрудников")
-        self.resize(1000, 700)
+        self.resize(1000, 750)
 
         layout = QVBoxLayout()
 
         # 1. Панель с входными параметрами
         params_group = QGroupBox("Параметры рабочей среды")
-        params_layout = QFormLayout()
+        params_layout = QVBoxLayout()
 
-        # Вибрация
-        self.vibration_slider = QSlider(Qt.Orientation.Horizontal)
-        self.vibration_slider.setRange(0, 100)
-        self.vibration_slider.setValue(50)
-        self.vibration_label = QLabel("0.50")
-        self.vibration_value_edit = QLineEdit("0.50")
-        self.vibration_value_edit.setMaximumWidth(60)
-        self.vibration_value_edit.textChanged.connect(
-            lambda: self.update_slider_from_edit(self.vibration_slider,
-                                                 self.vibration_value_edit))
+        # Создаем виджеты для каждого параметра
+        self.noise_widget = ParameterInputWidget("Шум", "noise")
+        self.vibration_widget = ParameterInputWidget("Вибрация", "vibration")
+        self.chemical_widget = ParameterInputWidget("Химический фактор", "chemical")
 
-        vibration_layout = QHBoxLayout()
-        vibration_layout.addWidget(self.vibration_slider)
-        vibration_layout.addWidget(self.vibration_value_edit)
-        params_layout.addRow("Вибрация:", vibration_layout)
+        params_layout.addWidget(self.noise_widget)
+        params_layout.addWidget(self.vibration_widget)
+        params_layout.addWidget(self.chemical_widget)
 
-        # Шум
-        self.noise_slider = QSlider(Qt.Orientation.Horizontal)
-        self.noise_slider.setRange(0, 100)
-        self.noise_slider.setValue(30)
-        self.noise_value_edit = QLineEdit("0.30")
-        self.noise_value_edit.setMaximumWidth(60)
-        self.noise_value_edit.textChanged.connect(
-            lambda: self.update_slider_from_edit(self.noise_slider,
-                                                 self.noise_value_edit))
-
-        noise_layout = QHBoxLayout()
-        noise_layout.addWidget(self.noise_slider)
-        noise_layout.addWidget(self.noise_value_edit)
-        params_layout.addRow("Шум:", noise_layout)
-
-        # Химический фактор
-        self.chemical_slider = QSlider(Qt.Orientation.Horizontal)
-        self.chemical_slider.setRange(0, 100)
-        self.chemical_slider.setValue(20)
-        self.chemical_value_edit = QLineEdit("0.20")
-        self.chemical_value_edit.setMaximumWidth(60)
-        self.chemical_value_edit.textChanged.connect(
-            lambda: self.update_slider_from_edit(self.chemical_slider,
-                                                 self.chemical_value_edit))
-
-        chemical_layout = QHBoxLayout()
-        chemical_layout.addWidget(self.chemical_slider)
-        chemical_layout.addWidget(self.chemical_value_edit)
-        params_layout.addRow("Химический фактор:", chemical_layout)
-
-        # Подключение слайдеров
-        self.vibration_slider.valueChanged.connect(
-            lambda v: self.vibration_value_edit.setText(f"{v / 100:.2f}"))
-        self.noise_slider.valueChanged.connect(
-            lambda v: self.noise_value_edit.setText(f"{v / 100:.2f}"))
-        self.chemical_slider.valueChanged.connect(
-            lambda v: self.chemical_value_edit.setText(f"{v / 100:.2f}"))
 
         params_group.setLayout(params_layout)
         layout.addWidget(params_group)
@@ -588,17 +658,19 @@ class MultiRiskCalculatorDialog(QDialog):
         self.table_widget = QTableWidget()
         self.table_widget.setColumnCount(6)
         self.table_widget.setHorizontalHeaderLabels([
-            "ФИО", "Должность", "Предприятие", "Показатель здоровья", "Уровень риска", "Категория"
+            "ФИО", "Должность", "Предприятие",
+            "Показатель здоровья", "Уровень риска", "Категория риска"
         ])
 
         # Настройка таблицы
         header = self.table_widget.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # ФИО
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Должность
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Предприятие
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Показатель здоровья
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Уровень риска
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Категория
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
 
         self.table_widget.setAlternatingRowColors(True)
 
@@ -611,6 +683,12 @@ class MultiRiskCalculatorDialog(QDialog):
         self.stats_label = QLabel("Выбрано сотрудников: 0")
         stats_layout.addWidget(self.stats_label)
         stats_layout.addStretch()
+
+        # Индикатор текущих параметров
+        self.params_info = QLabel("")
+        self.params_info.setStyleSheet("color: #666; font-size: 10px;")
+        stats_layout.addWidget(self.params_info)
+
         layout.addLayout(stats_layout)
 
         # 5. Кнопки
@@ -630,15 +708,13 @@ class MultiRiskCalculatorDialog(QDialog):
 
         self.setLayout(layout)
 
-    def update_slider_from_edit(self, slider, edit):
-        """Обновление слайдера из текстового поля"""
-        try:
-            value = float(edit.text())
-            value = max(0.0, min(1.0, value))
-            slider_value = int(value * 100)
-            slider.setValue(slider_value)
-        except ValueError:
-            pass
+        self.update_params_info()
+
+    def update_params_info(self):
+        """Обновить информацию о текущих параметрах"""
+        noise_val = self.noise_widget.get_physical_value()
+        vib_val = self.vibration_widget.get_physical_value()
+        chem_val = self.chemical_widget.get_physical_value()
 
     def load_employees_data(self):
         """Загрузка данных сотрудников в таблицу"""
@@ -647,7 +723,7 @@ class MultiRiskCalculatorDialog(QDialog):
         for row, employee in enumerate(self.employees):
             # ФИО
             name_item = QTableWidgetItem(employee.full_name)
-            name_item.setData(Qt.ItemDataRole.UserRole, employee.id)  # Сохраняем ID сотрудника
+            name_item.setData(Qt.ItemDataRole.UserRole, employee.id)
             self.table_widget.setItem(row, 0, name_item)
 
             # Должность
@@ -658,10 +734,11 @@ class MultiRiskCalculatorDialog(QDialog):
             dept_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table_widget.setItem(row, 2, dept_item)
 
-            # Показатель здоровья
-            health_score = HealthCalculator.calculate_health_score(employee)
-            health_item = QTableWidgetItem(f"{health_score:.2f}")
+            # Показатель здоровья (используем новый метод health_deficit)
+            health_deficit = HealthCalculator.calculate_health_score(employee)
+            health_item = QTableWidgetItem(f"{health_deficit:.3f}")
             health_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
             self.table_widget.setItem(row, 3, health_item)
 
             # Уровень риска (пока пусто)
@@ -679,15 +756,18 @@ class MultiRiskCalculatorDialog(QDialog):
     def calculate_risk_for_all(self):
         """Рассчитать риск для всех сотрудников"""
         try:
-            # Получаем значения параметров
-            vibration_val = float(self.vibration_value_edit.text())
-            noise_val = float(self.noise_value_edit.text())
-            chemical_val = float(self.chemical_value_edit.text())
+            # Получаем нормализованные значения параметров
+            vibration_val = self.vibration_widget.get_normalized_value()
+            noise_val = self.noise_widget.get_normalized_value()
+            chemical_val = self.chemical_widget.get_normalized_value()
 
-            # Валидация (дополнительная страховка)
+            # Валидация
             vibration_val = max(0.0, min(1.0, vibration_val))
             noise_val = max(0.0, min(1.0, noise_val))
             chemical_val = max(0.0, min(1.0, chemical_val))
+
+            # Обновляем информацию
+            self.update_params_info()
 
             # Рассчитываем риск для каждого сотрудника
             for row, employee in enumerate(self.employees):
@@ -702,20 +782,21 @@ class MultiRiskCalculatorDialog(QDialog):
                     self.results[employee.id] = result
 
                     # Обновляем таблицу
-                    risk_item = QTableWidgetItem(str(result['value']))
+                    risk_item = QTableWidgetItem(f"{result['value']:.3f}")
                     risk_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
                     self.table_widget.setItem(row, 4, risk_item)
 
                     category_item = QTableWidgetItem(result['category'])
                     category_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     self.table_widget.setItem(row, 5, category_item)
 
-            # Изменяем цвет кнопки
             self.calculate_all_btn.setStyleSheet("background-color: #45a049; color: white; font-weight: bold;")
+            self.statusBar().showMessage("Расчет выполнен", 3000) if hasattr(self, 'statusBar') else None
 
         except ValueError as e:
             QMessageBox.warning(self, "Ошибка ввода",
-                                "Пожалуйста, введите корректные числовые значения (0-1)")
+                                f"Пожалуйста, введите корректные значения:\n{str(e)}")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка расчета",
                                  f"Произошла ошибка при расчете: {str(e)}")
@@ -730,29 +811,29 @@ class MultiRiskCalculatorDialog(QDialog):
             import pandas as pd
             from datetime import datetime
 
-            # Подготавливаем данные
             data = []
             for row, employee in enumerate(self.employees):
                 if employee.id in self.results:
                     result = self.results[employee.id]
-                    health_score = HealthCalculator.calculate_health_score(employee)
+                    health_deficit = HealthCalculator.calculate_health_score(employee)
 
                     data.append({
                         'ФИО': employee.full_name,
                         'Должность': employee.position,
                         'Предприятие': employee.department_id,
-                        'Показатель здоровья': f"{health_score:.2f}",
-                        'Уровень риска': str(result['value']),
+                        'Показатель здоровья (дефицит)': f"{health_deficit:.3f}",
+                        'Уровень риска': f"{result['value']:.3f}",
                         'Категория риска': result['category'],
-                        'Вибрация': self.vibration_value_edit.text(),
-                        'Шум': self.noise_value_edit.text(),
-                        'Химический фактор': self.chemical_value_edit.text()
+                        'Вибрация (дБ)': f"{self.vibration_widget.get_physical_value():.1f}",
+                        'Шум (дБА)': f"{self.noise_widget.get_physical_value():.1f}",
+                        'Марганец (мг/м³)': f"{self.chemical_widget.get_physical_value():.3f}",
+                        'Вибрация (норм.)': f"{self.vibration_widget.get_normalized_value():.3f}",
+                        'Шум (норм.)': f"{self.noise_widget.get_normalized_value():.3f}",
+                        'Марганец (норм.)': f"{self.chemical_widget.get_normalized_value():.3f}"
                     })
 
-            # Создаем DataFrame
             df = pd.DataFrame(data)
 
-            # Диалог сохранения
             filename = f"risk_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
             file_path, _ = QFileDialog.getSaveFileName(
                 self,
