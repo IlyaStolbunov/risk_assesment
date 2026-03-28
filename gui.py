@@ -48,7 +48,7 @@ class EmployeeTableModel(QAbstractTableModel):
     def __init__(self, employees):
         super().__init__()
         self.employees = employees
-        self.headers = ['№', 'ФИО', 'Должность', 'Предприятие', 'Пол', 'Возраст', 'Проф. вредность', 'Год вредности', 'Инвалидность',
+        self.headers = ['№', 'ФИО', 'Должность', 'Предприятие', 'Пол', 'Возраст', 'Дата приема на работу', 'Проф. вредность', 'Год вредности', 'Инвалидность',
                         'Диагнозы', 'Здоровье']
 
     def rowCount(self, parent=None):
@@ -79,12 +79,14 @@ class EmployeeTableModel(QAbstractTableModel):
                 elif col == 5:
                     age = employee.get_age()
                     return str(age) if age is not None else ""
-                elif col == 10:
+                elif col == 6:
+                    return employee.start_year if hasattr(employee, 'start_year') and employee.start_year else ""
+                elif col == 11:
                     score = HealthCalculator.calculate_health_score(employee)
                     #desc = HealthCalculator.get_health_description(score)
                     return f"{score:.2f}"
                     #return f"{score:.2f} ({desc})"
-                elif col == 9:
+                elif col == 10:
                     if hasattr(employee, 'diagnoses') and employee.diagnoses:
                         all_diagnoses = []
                         for category, diagnoses in employee.diagnoses.items():
@@ -93,13 +95,14 @@ class EmployeeTableModel(QAbstractTableModel):
                         return ", ".join(all_diagnoses)
 
                     return ""
-                elif col == 6:
-                    return employee.prof_harm_code if hasattr(employee, 'prof_harm_code') and employee.prof_harm_code else ""
-                elif col == 8:
+                elif col == 7:
+                    return employee.prof_harm_code if hasattr(employee,
+                                                              'prof_harm_code') and employee.prof_harm_code else ""
+                elif col == 9:
                     if hasattr(employee, 'disability_group') and employee.disability_group:
                         return f"Гр.{employee.disability_group}"
                     return ""
-                elif col == 7:
+                elif col == 8:
                     return employee.prof_harm_year if hasattr(employee,
                                                               'prof_harm_year') and employee.prof_harm_year else ""
 
@@ -108,12 +111,12 @@ class EmployeeTableModel(QAbstractTableModel):
                 return "Ошибка"
 
         elif role == Qt.ItemDataRole.TextAlignmentRole:
-            if col in [0, 3, 4, 5, 6, 7, 8, 10]:
+            if col in [0, 3, 4, 5, 6, 7, 8, 9, 11]:
                 return Qt.AlignmentFlag.AlignCenter
             return Qt.AlignmentFlag.AlignLeft
 
         elif role == Qt.ItemDataRole.ToolTipRole:
-            if col == 9 and hasattr(employee, 'diagnoses') and employee.diagnoses:
+            if col == 10 and hasattr(employee, 'diagnoses') and employee.diagnoses:
                 tooltip = "<b>Диагнозы:</b><br>"
                 for category, diagnoses in employee.diagnoses.items():
                     if diagnoses:
@@ -318,16 +321,16 @@ class AddEditEmployeeDialog(QDialog):
         self.start_date_edit = QDateEdit()
         self.start_date_edit.setCalendarPopup(True)
         self.start_date_edit.setDate(QDate.currentDate())
-        info_layout.addRow("Дата начала работы:", self.start_date_edit)
+        info_layout.addRow("Дата приема на работу:", self.start_date_edit)
 
         info_group.setLayout(info_layout)
         content_layout.addWidget(info_group)
 
-        # 2. Диагнозы
+        # Диагнозы
         self.diagnosis_widget = DiagnosisInputWidget()
         content_layout.addWidget(self.diagnosis_widget)
 
-        # 3. Профвредность
+        # Профвредность
         prof_group = QGroupBox("Профессиональная вредность")
         prof_layout = QFormLayout()
 
@@ -343,7 +346,7 @@ class AddEditEmployeeDialog(QDialog):
         prof_group.setLayout(prof_layout)
         content_layout.addWidget(prof_group)
 
-        # 4. Инвалидность
+        # Инвалидность
         disability_group = QGroupBox("Инвалидность")
         disability_layout = QFormLayout()
 
@@ -364,7 +367,7 @@ class AddEditEmployeeDialog(QDialog):
         scroll.setWidget(content_widget)
         main_layout.addWidget(scroll)
 
-        # 5. Кнопки
+        # Кнопки
         button_layout = QHBoxLayout()
         self.save_btn = QPushButton("Сохранить")
         self.cancel_btn = QPushButton("Отмена")
@@ -1074,8 +1077,9 @@ class MainWindow(QMainWindow):
                 header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
                 header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
                 header.setSectionResizeMode(8, QHeaderView.ResizeMode.ResizeToContents)
-                header.setSectionResizeMode(9, QHeaderView.ResizeMode.Stretch)
-                header.setSectionResizeMode(10, QHeaderView.ResizeMode.ResizeToContents)
+                header.setSectionResizeMode(9, QHeaderView.ResizeMode.ResizeToContents)
+                header.setSectionResizeMode(10, QHeaderView.ResizeMode.Stretch)
+                header.setSectionResizeMode(11, QHeaderView.ResizeMode.ResizeToContents)
 
 
 
