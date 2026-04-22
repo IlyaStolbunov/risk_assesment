@@ -59,21 +59,36 @@ class Employee:
             return None
 
     def get_experience(self):
-        """Получить стаж работы"""
+        """Получить стаж работы в годах"""
         if not self.start_year:
-            return None
+            return 0.0
 
         try:
-            start_date = datetime.strptime(str(self.start_year), '%Y-%m-%d')
+            if isinstance(self.start_year, str):
+                start_date = datetime.strptime(str(self.start_year), '%Y-%m-%d')
+            else:
+                start_date = self.start_year
+
             today = datetime.now()
             experience = today.year - start_date.year
 
+            # Проверяем, был ли уже день начала работы в этом году
             if (today.month, today.day) < (start_date.month, start_date.day):
                 experience -= 1
 
-            return experience
-        except:
-            return None
+            # Добавляем дробную часть (месяцы/дни)
+            if experience > 0:
+                # Примерная дробная часть
+                if today.month >= start_date.month:
+                    months_diff = today.month - start_date.month
+                else:
+                    months_diff = 12 - start_date.month + today.month
+                experience += months_diff / 12.0
+
+            return max(0.0, experience)
+        except Exception as e:
+            print(f"Error calculating experience: {e}")
+            return 0.0
 
 
 class EmployeeManager:

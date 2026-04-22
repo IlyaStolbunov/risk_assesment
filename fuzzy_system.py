@@ -203,7 +203,7 @@ class FuzzyRiskSystem:
             category = self._categorize_risk(risk_value)
 
             return {
-                'value': round(risk_value, 3),
+                'value': risk_value,
                 'percent': f"{risk_value*100:.1f}%",  # Конвертируем в проценты для отображения
                 'category': category,
                 'success': True

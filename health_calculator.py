@@ -47,30 +47,32 @@ class HealthCalculator:
             3: 0.15
         }
         return disability_contributions.get(disability_group, 0)
-
+    '''
     @staticmethod
-    def _calculate_age_contribution(age):
-        """Расчет возрастного вклада в дефицит здоровья"""
-        if not age or age <= 40:
-            return 0.0
+        def _calculate_age_contribution(age):
+            """Расчет возрастного вклада в дефицит здоровья"""
+            if not age or age <= 40:
+                return 0.0
+    
+            if age >= 70:
+                return 0.25  # максимальный вклад от возраста 25%
+    
+            # Плавное увеличение вклада с 40 до 70 лет
+            return min((age - 40) * 0.00833, 0.25)  # 0.00833 = 0.25/30
+    
+        @staticmethod
+        def _calculate_experience_contribution(experience):
+            """Расчет вклада стажа в дефицит здоровья"""
+            if not experience or experience <= 10:
+                return 0.0
+    
+            if experience >= 40:
+                return 0.20  # максимальный вклад от стажа 20%
+    
+            # Плавное увеличение вклада с 10 до 40 лет
+            return min((experience - 10) * 0.00667, 0.20)  # 0.00667 = 0.2/30
+    '''
 
-        if age >= 70:
-            return 0.25  # максимальный вклад от возраста 25%
-
-        # Плавное увеличение вклада с 40 до 70 лет
-        return min((age - 40) * 0.00833, 0.25)  # 0.00833 = 0.25/30
-
-    @staticmethod
-    def _calculate_experience_contribution(experience):
-        """Расчет вклада стажа в дефицит здоровья"""
-        if not experience or experience <= 10:
-            return 0.0
-
-        if experience >= 40:
-            return 0.20  # максимальный вклад от стажа 20%
-
-        # Плавное увеличение вклада с 10 до 40 лет
-        return min((experience - 10) * 0.00667, 0.20)  # 0.00667 = 0.2/30
 
     @staticmethod
     def _calculate_prof_harm_contribution(prof_harm_code):
@@ -122,12 +124,12 @@ class HealthCalculator:
         )
 
         # 3. Возрастной вклад
-        age = getattr(employee, 'get_age', lambda: None)()
-        age_contribution = HealthCalculator._calculate_age_contribution(age)
+        #age = getattr(employee, 'get_age', lambda: None)()
+        #age_contribution = HealthCalculator._calculate_age_contribution(age)
 
         # 4. Вклад стажа
-        experience = getattr(employee, 'get_experience', lambda: None)()
-        exp_contribution = HealthCalculator._calculate_experience_contribution(experience)
+        #experience = getattr(employee, 'get_experience', lambda: None)()
+        #exp_contribution = HealthCalculator._calculate_experience_contribution(experience)
 
         # 5. Вклад профвредности
         prof_contribution = HealthCalculator._calculate_prof_harm_contribution(
@@ -140,8 +142,8 @@ class HealthCalculator:
         health_score = 1 - (
                 (1 - diseases_contribution) *
                 (1 - disability_contribution) *
-                (1 - age_contribution) *
-                (1 - exp_contribution) *
+                #(1 - age_contribution) *
+                #(1 - exp_contribution) *
                 (1 - prof_contribution)
         )
 

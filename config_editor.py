@@ -20,7 +20,7 @@ OUTPUT_VAR = "risk"
 
 import os
 
-DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "configs/default_config.json")
+DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "configs/test_config.json")
 
 
 class MplCanvas(FigureCanvas):
